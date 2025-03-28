@@ -1,7 +1,7 @@
 {
 	"name": "cofhe-hardhat-starter",
 	"version": "0.0.1",
-	"description": "An example repository to get you started with Fhenix CoFHE development",
+	"description": "Starter repository for Fhenix CoFHE contract development",
 	"scripts": {
 		"test": "REPORT_GAS=true hardhat test --network localcofhe",
 		"test:hardhat": "REPORT_GAS=true hardhat test --network hardhat",
