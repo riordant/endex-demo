@@ -8,7 +8,7 @@ describe('Counter', function () {
 	// and reset Hardhat Network to that snapshot in every test.
 	async function deployCounterFixture() {
 		// Contracts are deployed using the first signer/account by default
-		const [signer, bob, alice] = await hre.ethers.getSigners()
+		const [signer, signer2, bob, alice] = await hre.ethers.getSigners()
 
 		const Counter = await hre.ethers.getContractFactory('Counter')
 		const counter = await Counter.deploy()
@@ -18,9 +18,11 @@ describe('Counter', function () {
 
 	describe('Functionality', function () {
 		it('Should set the right unlockTime', async function () {
-			const { counter } = await loadFixture(deployCounterFixture)
+			const { counter, bob } = await loadFixture(deployCounterFixture)
 
 			expect(await counter.count()).to.equal(0)
+
+			await counter.connect(bob).increment()
 		})
 	})
 })
