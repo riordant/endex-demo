@@ -62,6 +62,9 @@ importers:
       chai:
         specifier: ^4.2.0
         version: 4.5.0
+      cofhejs:
+        specifier: file:../cofhe.js
+        version: file:../cofhe.js
       ethers:
         specifier: ^6.4.0
         version: 6.13.5
@@ -533,6 +536,9 @@ packages:
   '@types/node@10.17.60':
     resolution: {integrity: sha512-F0KIgDJfy2nA3zMLmWGKxcH2ZVEtCZXHHdOQs2gSaQ27+lNeEfGxzkIw90aXswATX7AZ33tahPbzy6KAfUreVw==}
 
+  '@types/node@20.17.28':
+    resolution: {integrity: sha512-DHlH/fNL6Mho38jTy7/JT7sn2wnXI+wULR6PV4gy4VHLVvnrV/d3pHAMQHhc4gjdLmK2ZiPoMxzp6B3yRajLSQ==}
+
   '@types/node@22.13.14':
     resolution: {integrity: sha512-Zs/Ollc1SJ8nKUAgc7ivOEdIBM8JAKgrqqUYi2J997JuKO7/tpQC+WCetQ1sypiKCQWHdvdg9wBNpUPEWZae7w==}
 
@@ -817,6 +823,10 @@ packages:
     resolution: {directory: ../cofhe-hardhat-plugin, type: directory}
     peerDependencies:
       hardhat: ^2.11.0
+
+  cofhejs@file:../cofhe.js:
+    resolution: {directory: ../cofhe.js, type: directory}
+    engines: {node: '>=20.0.0'}
 
   color-convert@1.9.3:
     resolution: {integrity: sha512-QfAUtd+vFdAtFQcC8CCyYt1fYWxSqAiK2cSD6zDB8N3cpsEBAvRxp9zOGg6G/SHHJYAT88/az/IuDGALsNVbGg==}
@@ -1290,6 +1300,9 @@ packages:
   immer@10.0.2:
     resolution: {integrity: sha512-Rx3CqeqQ19sxUtYV9CU911Vhy8/721wRFnJv3REVGWUmoAcIwzifTsdmJte/MV+0/XpM35LZdQMBGkRIoLPwQA==}
 
+  immer@10.1.1:
+    resolution: {integrity: sha512-s2MPrmjovJcoMaHtx6K11Ra7oD05NT97w1IC5zpMkT6Atjr7H8LjaDd81iIxUYpMKSRRNMJE703M1Fhr/TctHw==}
+
   immutable@4.3.7:
     resolution: {integrity: sha512-1hqclzwYwjRDFLjcFxOM5AYkkG0rpFPpr1RLPMEuGczoS7YA8gLhy8SWXYRAA/XwfEHpfo3cw5JGioS32fnMRw==}
 
@@ -1529,6 +1542,9 @@ packages:
   node-gyp-build@4.8.4:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
     hasBin: true
+
+  node-tfhe@0.11.1:
+    resolution: {integrity: sha512-QFkIeIZ5IbdvhpkzImwakL2+sZFCTXCwGvOacE1NczR+zgrg5ixHU9KpjuuIi1YbbKFGJEMoSUmivDktuzFaKg==}
 
   nofilter@3.1.0:
     resolution: {integrity: sha512-l2NNj07e9afPnhAhvgVrCD/oy2Ai1yfLpuo3EpiO1jFTsB4sFz6oIfAfSZyQzVpkZQ9xS8ZS5g1jCBgq4Hwo0g==}
@@ -1907,6 +1923,9 @@ packages:
     resolution: {integrity: sha512-9kY+CygyYM6j02t5YFHbNz2FN5QmYGv9zAjVp4lCDjlCw7amdckXlEt/bjMhUIfj4ThGRE4gCUH5+yGnNuPo5A==}
     engines: {node: '>=10.0.0'}
 
+  tfhe@0.11.1:
+    resolution: {integrity: sha512-D4YeL0DYz4IOV/X7YzKFexkjbJdOdGn2M7mfDNOQW1OxA+NO/Z61BJ6ULLTvdBEQ3N6P985lNO61Drgsjf0g/w==}
+
   then-request@6.0.2:
     resolution: {integrity: sha512-3ZBiG7JvP3wbDzA9iNY5zJQcHL4jn/0BWtXIkagfz7QgOL/LqjCEOBQuJNZfu0XYnv5JhKh+cDxCPM4ILrqruA==}
     engines: {node: '>=6.0.0'}
@@ -1987,6 +2006,10 @@ packages:
   type-fest@0.7.1:
     resolution: {integrity: sha512-Ne2YiiGN8bmrmJJEuTWTLJR32nh/JdL1+PSicowtNb0WFpn59GK8/lfD61bVtzguz7b3PBt74nxpv/Pw5po5Rg==}
     engines: {node: '>=8'}
+
+  type-fest@4.38.0:
+    resolution: {integrity: sha512-2dBz5D5ycHIoliLYLi0Q2V7KRaDlH0uWIvmk7TYlAg5slqwiPv1ezJdZm1QEM0xgk29oYWMCbIG7E6gHpvChlg==}
+    engines: {node: '>=16'}
 
   typechain@8.3.2:
     resolution: {integrity: sha512-x/sQYr5w9K7yv3es7jo4KTX05CLxOf7TRWwoHlrjRh8H82G64g+k7VuWPJlgMo6qrjfCulOdfBjiaDtmhFYD/Q==}
@@ -2142,6 +2165,27 @@ packages:
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  zod@3.24.2:
+    resolution: {integrity: sha512-lY7CDW43ECgW9u1TcT3IoXHflywfVqDYze4waEz812jR/bZ8FHDsl7pFQoSZTz5N+2NqRXs8GBwnAwo3ZNxqhQ==}
+
+  zustand@5.0.3:
+    resolution: {integrity: sha512-14fwWQtU3pH4dE0dOpdMiWjddcH+QzKIgk1cl8epwSE7yag43k/AD/m4L6+K7DytAOr9gGBe3/EXj9g7cdostg==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      immer: '>=9.0.6'
+      react: '>=18.0.0'
+      use-sync-external-store: '>=1.2.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      immer:
+        optional: true
+      react:
+        optional: true
+      use-sync-external-store:
+        optional: true
 
 snapshots:
 
@@ -2803,6 +2847,10 @@ snapshots:
 
   '@types/node@10.17.60': {}
 
+  '@types/node@20.17.28':
+    dependencies:
+      undici-types: 6.19.8
+
   '@types/node@22.13.14':
     dependencies:
       undici-types: 6.20.0
@@ -3094,17 +3142,39 @@ snapshots:
     dependencies:
       '@fhenixprotocol/cofhe-contracts': 0.0.13
       '@fhenixprotocol/cofhe-mock-contracts': file:../cofhe-mock-contracts/contracts(@fhenixprotocol/cofhe-contracts@0.0.13)(@openzeppelin/contracts-upgradeable@5.2.0(@openzeppelin/contracts@5.2.0))(@openzeppelin/contracts@5.2.0)
+      '@nomicfoundation/hardhat-ethers': 3.0.8(ethers@6.13.5)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2))
       '@openzeppelin/contracts': 5.2.0
       '@openzeppelin/contracts-upgradeable': 5.2.0(@openzeppelin/contracts@5.2.0)
       axios: 1.8.4
       chalk: 4.1.2
+      cofhejs: file:../cofhe.js
       ethers: 6.13.5
       fast-glob: 3.3.3
       hardhat: 2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2)
     transitivePeerDependencies:
+      - '@types/react'
       - bufferutil
       - debug
+      - react
+      - supports-color
+      - use-sync-external-store
       - utf-8-validate
+
+  cofhejs@file:../cofhe.js:
+    dependencies:
+      '@types/node': 20.17.28
+      immer: 10.1.1
+      node-tfhe: 0.11.1
+      tfhe: 0.11.1
+      tweetnacl: 1.0.3
+      tweetnacl-util: 0.15.1
+      type-fest: 4.38.0
+      zod: 3.24.2
+      zustand: 5.0.3(immer@10.1.1)
+    transitivePeerDependencies:
+      - '@types/react'
+      - react
+      - use-sync-external-store
 
   color-convert@1.9.3:
     dependencies:
@@ -3747,6 +3817,8 @@ snapshots:
 
   immer@10.0.2: {}
 
+  immer@10.1.1: {}
+
   immutable@4.3.7: {}
 
   indent-string@4.0.0: {}
@@ -3960,6 +4032,8 @@ snapshots:
       lodash: 4.17.21
 
   node-gyp-build@4.8.4: {}
+
+  node-tfhe@0.11.1: {}
 
   nofilter@3.1.0: {}
 
@@ -4372,6 +4446,8 @@ snapshots:
       string-width: 4.2.3
       strip-ansi: 6.0.1
 
+  tfhe@0.11.1: {}
+
   then-request@6.0.2:
     dependencies:
       '@types/concat-stream': 1.6.1
@@ -4455,6 +4531,8 @@ snapshots:
   type-fest@0.21.3: {}
 
   type-fest@0.7.1: {}
+
+  type-fest@4.38.0: {}
 
   typechain@8.3.2(typescript@5.8.2):
     dependencies:
@@ -4573,3 +4651,9 @@ snapshots:
   yn@3.1.1: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@3.24.2: {}
+
+  zustand@5.0.3(immer@10.1.1):
+    optionalDependencies:
+      immer: 10.1.1

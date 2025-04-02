@@ -59,6 +59,7 @@
 		"@openzeppelin/contracts-upgradeable": "^5.0.0",
 		"@fhenixprotocol/cofhe-contracts": "0.0.13",
 		"@fhenixprotocol/cofhe-mock-contracts": "file:../cofhe-mock-contracts/contracts",
-		"@fhenixprotocol/cofhe-hardhat-plugin": "file:../cofhe-hardhat-plugin"
+		"@fhenixprotocol/cofhe-hardhat-plugin": "file:../cofhe-hardhat-plugin",
+		"cofhejs": "file:../cofhe.js"
 	}
 }

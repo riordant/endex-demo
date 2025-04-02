@@ -1,5 +1,6 @@
 import { HardhatUserConfig } from 'hardhat/config'
 import '@nomicfoundation/hardhat-toolbox'
+import '@nomicfoundation/hardhat-ethers'
 import '@fhenixprotocol/cofhe-hardhat-plugin'
 
 const config: HardhatUserConfig = {
