@@ -1,28 +1,28 @@
 {
 	"name": "cofhe-hardhat-starter",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Starter repository for Fhenix CoFHE contract development",
 	"scripts": {
-		"test": "REPORT_GAS=true hardhat test --network localcofhe",
-		"test:hardhat": "REPORT_GAS=true hardhat test --network hardhat",
-		"test:localcofhe": "REPORT_GAS=true hardhat test --network localcofhe",
+		"test": "REPORT_GAS=true hardhat test --network hardhat",
+		"// test:hardhat": "REPORT_GAS=true hardhat test --network hardhat",
+		"// test:localcofhe": "REPORT_GAS=true hardhat test --network localcofhe",
 		"clean": "rimraf ./artifacts ./cache ./coverage ./types ./coverage.json ./deployments/localcofhe",
 		"compile": "hardhat compile",
 		"--------------": "",
 		" --- cofhe ---": "",
 		"  --------------": "",
-		"cofhe:faucet": "hardhat task:cofhe:usefaucet",
-		"task:deploy": "hardhat deploy",
-		"task:addCount": "hardhat task:addCount",
-		"task:getCount": "hardhat task:getCount",
-		"task:getFunds": "hardhat task:getFunds",
-		"-------------------": "",
-		" --- localcofhe ---": "",
-		"  -------------------": "",
-		"localcofhe:start": "hardhat localcofhe:start --clean true",
-		"localcofhe:faucet": "hardhat task:cofhe:usefaucet",
-		"localcofhe:deploy": "hardhat deploy --network localcofhe",
-		"localcofhe:stop": "hardhat localcofhe:stop"
+		"// cofhe:faucet": "hardhat task:cofhe:usefaucet",
+		"// task:deploy": "hardhat deploy",
+		"// task:addCount": "hardhat task:addCount",
+		"// task:getCount": "hardhat task:getCount",
+		"// task:getFunds": "hardhat task:getFunds",
+		"// -------------------": "",
+		"//  --- localcofhe ---": "",
+		"//   -------------------": "",
+		"// localcofhe:start": "hardhat localcofhe:start --clean true",
+		"// localcofhe:faucet": "hardhat task:cofhe:usefaucet",
+		"// localcofhe:deploy": "hardhat deploy --network localcofhe",
+		"// localcofhe:stop": "hardhat localcofhe:stop"
 	},
 	"repository": {
 		"type": "git",
@@ -52,7 +52,7 @@
 		"@types/mocha": ">=9.1.0",
 		"@types/node": ">=18.0.0",
 		"chai": "^4.2.0",
-		"cofhejs": "file:../cofhe.js",
+		"cofhejs": "^0.1.1",
 		"ethers": "^6.4.0",
 		"hardhat": "^2.22.19",
 		"hardhat-gas-reporter": "^1.0.8",
@@ -60,6 +60,6 @@
 		"ts-node": ">=8.0.0",
 		"typechain": "^8.3.0",
 		"typescript": ">=4.5.0",
-		"cofhe-hardhat-plugin": "^0.1.1"
+		"cofhe-hardhat-plugin": "^0.1.2"
 	}
 }

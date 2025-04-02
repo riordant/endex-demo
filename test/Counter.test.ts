@@ -1,5 +1,5 @@
 import { loadFixture } from '@nomicfoundation/hardhat-toolbox/network-helpers'
-import { expectResultSuccess, expectResultValue, initializeWithHardhatSigner, mock_expectPlaintext } from '@fhenixprotocol/cofhe-hardhat-plugin'
+import { expectResultSuccess, expectResultValue, initializeWithHardhatSigner, mock_expectPlaintext } from 'cofhe-hardhat-plugin'
 import hre from 'hardhat'
 import { cofhejs, Encryptable, EncryptStep, FheTypes } from 'cofhejs/node'
 

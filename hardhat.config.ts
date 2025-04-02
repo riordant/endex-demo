@@ -1,7 +1,7 @@
 import { HardhatUserConfig } from 'hardhat/config'
 import '@nomicfoundation/hardhat-toolbox'
 import '@nomicfoundation/hardhat-ethers'
-import '@fhenixprotocol/cofhe-hardhat-plugin'
+import 'cofhe-hardhat-plugin'
 
 const config: HardhatUserConfig = {
 	solidity: {
@@ -10,7 +10,8 @@ const config: HardhatUserConfig = {
 			evmVersion: 'cancun',
 		},
 	},
-	defaultNetwork: 'localcofhe',
+	defaultNetwork: 'hardhat',
+	// defaultNetwork: 'localcofhe',
 }
 
 export default config

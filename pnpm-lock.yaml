@@ -60,11 +60,11 @@ importers:
         specifier: ^4.2.0
         version: 4.5.0
       cofhe-hardhat-plugin:
-        specifier: ^0.1.1
-        version: 0.1.1(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2))
+        specifier: ^0.1.2
+        version: 0.1.2(cofhejs@0.1.1)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2))
       cofhejs:
-        specifier: file:../cofhe.js
-        version: file:../cofhe.js
+        specifier: ^0.1.1
+        version: 0.1.1
       ethers:
         specifier: ^6.4.0
         version: 6.13.5
@@ -819,17 +819,14 @@ packages:
   cliui@7.0.4:
     resolution: {integrity: sha512-OcRE68cOsVMXp1Yvonl/fzkQOyjLSu/8bhPDfQt0e0/Eb283TKP20Fs2MqoPsr9SwA595rRCA+QMzYc9nBP+JQ==}
 
-  cofhe-hardhat-plugin@0.1.1:
-    resolution: {integrity: sha512-Si7RNJgrFCc1o78fTumfGERTUckzsmDtTVBVTVxJmk7Qxo2O/css9cO9kxRRLuVfM4e3t9/EiVspfBpCAY/Y6A==}
+  cofhe-hardhat-plugin@0.1.2:
+    resolution: {integrity: sha512-UyWisp0rDwRlf2Q4HO7APsBITmLQ6OW3wJ0gYcRf+rNPmTC1wyYIcSfZAC1xoj04w0jSSvz+yE6hnJUolSh3Hw==}
     peerDependencies:
+      cofhejs: ^0.1.1
       hardhat: ^2.11.0
 
   cofhejs@0.1.1:
     resolution: {integrity: sha512-SA5xLO5HjQqnM0fYE4PYHzTdXSA9R79YwzgzBxwGNofzzdWFxJQwOkK00euU49AoYbd0NW7DMCRuTIUyesNuCg==}
-    engines: {node: '>=20.0.0'}
-
-  cofhejs@file:../cofhe.js:
-    resolution: {directory: ../cofhe.js, type: directory}
     engines: {node: '>=20.0.0'}
 
   color-convert@1.9.3:
@@ -3142,7 +3139,7 @@ snapshots:
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
 
-  cofhe-hardhat-plugin@0.1.1(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2)):
+  cofhe-hardhat-plugin@0.1.2(cofhejs@0.1.1)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2)):
     dependencies:
       '@fhenixprotocol/cofhe-contracts': 0.0.13
       '@fhenixprotocol/cofhe-mock-contracts': 0.0.2(@fhenixprotocol/cofhe-contracts@0.0.13)(@openzeppelin/contracts-upgradeable@5.2.0(@openzeppelin/contracts@5.2.0))(@openzeppelin/contracts@5.2.0)
@@ -3156,31 +3153,12 @@ snapshots:
       fast-glob: 3.3.3
       hardhat: 2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2)
     transitivePeerDependencies:
-      - '@types/react'
       - bufferutil
       - debug
-      - react
       - supports-color
-      - use-sync-external-store
       - utf-8-validate
 
   cofhejs@0.1.1:
-    dependencies:
-      '@types/node': 20.17.28
-      immer: 10.1.1
-      node-tfhe: 0.11.1
-      tfhe: 0.11.1
-      tweetnacl: 1.0.3
-      tweetnacl-util: 0.15.1
-      type-fest: 4.38.0
-      zod: 3.24.2
-      zustand: 5.0.3(immer@10.1.1)
-    transitivePeerDependencies:
-      - '@types/react'
-      - react
-      - use-sync-external-store
-
-  cofhejs@file:../cofhe.js:
     dependencies:
       '@types/node': 20.17.28
       immer: 10.1.1
