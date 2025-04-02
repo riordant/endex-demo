@@ -11,11 +11,10 @@
 		"--------------": "",
 		" --- cofhe ---": "",
 		"  --------------": "",
-		"// cofhe:faucet": "hardhat task:cofhe:usefaucet",
 		"// task:deploy": "hardhat deploy",
 		"// task:addCount": "hardhat task:addCount",
 		"// task:getCount": "hardhat task:getCount",
-		"// task:getFunds": "hardhat task:getFunds",
+		"localcofhe:faucet": "hardhat getFunds --network localcofhe",
 		"// -------------------": "",
 		"//  --- localcofhe ---": "",
 		"//   -------------------": "",
@@ -60,6 +59,7 @@
 		"ts-node": ">=8.0.0",
 		"typechain": "^8.3.0",
 		"typescript": ">=4.5.0",
-		"cofhe-hardhat-plugin": "^0.1.2"
+		"cofhe-hardhat-plugin": "^0.1.2",
+		"dotenv": "^16.4.7"
 	}
 }
