@@ -3,8 +3,13 @@ import { expectResultSuccess, expectResultValue, initializeWithHardhatSigner, mo
 import hre from 'hardhat'
 import { cofhejs, Encryptable, EncryptStep, FheTypes } from 'cofhejs/node'
 import { sendFunds } from '../utils/funding'
+import { expect } from 'chai'
 
 describe('Counter', function () {
+
+	function sleep(ms: number): Promise<void> {
+		return new Promise(resolve => setTimeout(resolve, ms));
+	}
 
 	const isLocalCofhe = () => {
 		return hre.network.name === 'localcofhe';
@@ -140,5 +145,33 @@ describe('Counter', function () {
 			console.log('decryptedResult', decryptedResult)
 			expectResultValue(decryptedResult, 5n)
 		})		
+
+		it('On-chain decrypt (localcofhe)', async function () {
+			const { counter, bob } = await deployCounterFixture();
+
+			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment:'LOCAL' }))
+
+			await counter.connect(bob).increment()
+			await counter.connect(bob).increment()
+			await counter.connect(bob).increment()
+
+			await counter.connect(bob).decryptCounter()
+			
+			let maxAttempts = 10
+			let count = 0n;
+			while (maxAttempts > 0) {
+				try {
+					count = await counter.connect(bob).getDecryptedValue();
+					maxAttempts = 0;
+				} catch (error) {
+					console.error('Error', error)
+				}
+				maxAttempts--;
+				await sleep(1000)
+			}
+
+			expect(count).equal(3n);
+			
+		})
 	})	
 })
