@@ -36,6 +36,7 @@ describe('Counter', function () {
 
 			const count = await counter.count()
 			const unsealedResult = await cofhejs.unseal(count, FheTypes.Uint32)
+			console.log('unsealedResult', unsealedResult)
 			expectResultValue(unsealedResult, 0n)
 
 			await counter.connect(bob).increment()

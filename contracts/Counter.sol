@@ -6,13 +6,19 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 contract Counter {
     euint32 public count;
     euint32 public ONE;
+    ebool public isInitialized;
 
     constructor() {
         ONE = FHE.asEuint32(1);
         count = FHE.asEuint32(0);
 
+        isInitialized = FHE.asEbool(false);
+        isInitialized = FHE.asEbool(true);
+
         FHE.allowThis(count);
         FHE.allowThis(ONE);
+
+        FHE.gte(count, ONE);
 
         FHE.allowSender(count);
     }
