@@ -14,12 +14,12 @@
 		"// task:deploy": "hardhat deploy",
 		"// task:addCount": "hardhat task:addCount",
 		"// task:getCount": "hardhat task:getCount",
-		"localcofhe:faucet": "hardhat getFunds --network localcofhe",
+		
 		"// -------------------": "",
 		"//  --- localcofhe ---": "",
 		"//   -------------------": "",
 		"// localcofhe:start": "hardhat localcofhe:start --clean true",
-		"// localcofhe:faucet": "hardhat task:cofhe:usefaucet",
+		"localcofhe:faucet": "hardhat task:cofhe:usefaucet --network localcofhe",
 		"// localcofhe:deploy": "hardhat deploy --network localcofhe",
 		"// localcofhe:stop": "hardhat localcofhe:stop"
 	},

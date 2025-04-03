@@ -1,8 +1,7 @@
 import { loadFixture } from '@nomicfoundation/hardhat-toolbox/network-helpers'
-import { expectResultSuccess, expectResultValue, initializeWithHardhatSigner, mock_expectPlaintext } from 'cofhe-hardhat-plugin'
+import { expectResultSuccess, expectResultValue, initializeWithHardhatSigner, mock_expectPlaintext, localcofheFundWalletIfNeeded } from 'cofhe-hardhat-plugin'
 import hre from 'hardhat'
 import { cofhejs, Encryptable, EncryptStep, FheTypes } from 'cofhejs/node'
-import { sendFunds } from '../utils/funding'
 import { expect } from 'chai'
 
 describe('Counter', function () {
@@ -11,18 +10,14 @@ describe('Counter', function () {
 		return new Promise(resolve => setTimeout(resolve, ms));
 	}
 
-	const isLocalCofhe = () => {
-		return hre.network.name === 'localcofhe';
-	}
-
-	// Custom fixture loader with proper TypeScript typing
-	async function customLoadFixture<T>(fixture: () => Promise<T>): Promise<T> {
-		if (isLocalCofhe()) {
-			// For localcofhe network, just run the fixture directly
-			return fixture();
-		} else {
-			// For Hardhat Network, use the standard loadFixture
-			return loadFixture(fixture);
+	const permittedCofheEnvironment = (env: string) => {
+		switch (env) {
+			case 'LOCAL':
+				return hre.network.name === 'localcofhe';
+			case 'MOCK':
+				return hre.network.name === 'hardhat';
+			default:
+				return false;
 		}
 	}
 
@@ -38,7 +33,7 @@ describe('Counter', function () {
 
 	describe('Functionality', function () {
 		beforeEach(function() {
-			if (isLocalCofhe()) {
+			if (!permittedCofheEnvironment('MOCK')) {
 			  this.skip();
 			}
 		})
@@ -91,28 +86,12 @@ describe('Counter', function () {
 
 	describe('Functionality (localcofhe)', function () {
 		beforeEach(async function() {
-			if (!isLocalCofhe()) {
+			if (!permittedCofheEnvironment('LOCAL')) {
 			  this.skip();
-
 			}
 			
 			const [signer, signer2, bob, alice] = await hre.ethers.getSigners()
-
-			// Check Bob's balance and fund if needed
-			const bobBalance = await hre.ethers.provider.getBalance(bob.address)
-			console.log(`Bob's balance: ${hre.ethers.formatEther(bobBalance)} ETH`)
-			
-			if (bobBalance < hre.ethers.parseEther("1")) {
-				console.log(`Bob's balance is less than 1 ETH. Funding Bob's account...`)
-				const receipt = await sendFunds(hre, bob.address);
-				if (receipt) {
-					const newBalance = await hre.ethers.provider.getBalance(bob.address)
-					console.log(`Bob's new balance: ${hre.ethers.formatEther(newBalance)} ETH`)
-				} else {
-					console.error("Failed to fund Bob's account")
-				}
-			}
-
+			await localcofheFundWalletIfNeeded(hre, bob.address)
 		})
 
 		it('Should increment the counter & unseal (localcofhe)', async function () {
