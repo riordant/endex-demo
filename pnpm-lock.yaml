@@ -60,8 +60,8 @@ importers:
         specifier: ^4.2.0
         version: 4.5.0
       cofhe-hardhat-plugin:
-        specifier: file:../cofhe-hardhat-plugin
-        version: file:../cofhe-hardhat-plugin(cofhejs@0.1.2)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2))
+        specifier: v0.1.4-alpha.1
+        version: 0.1.4-alpha.1(cofhejs@0.1.2)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2))
       cofhejs:
         specifier: ^0.1.2
         version: 0.1.2
@@ -819,8 +819,8 @@ packages:
   cliui@7.0.4:
     resolution: {integrity: sha512-OcRE68cOsVMXp1Yvonl/fzkQOyjLSu/8bhPDfQt0e0/Eb283TKP20Fs2MqoPsr9SwA595rRCA+QMzYc9nBP+JQ==}
 
-  cofhe-hardhat-plugin@file:../cofhe-hardhat-plugin:
-    resolution: {directory: ../cofhe-hardhat-plugin, type: directory}
+  cofhe-hardhat-plugin@0.1.4-alpha.1:
+    resolution: {integrity: sha512-jR+JFYfgs9hN3bRSLnWgxcpQZ3siwdZMfPmybqYc8DJrCB2NLdAc3UwbbRckMhETVSeJkLZxPOw0SfiwV4aPjA==}
     peerDependencies:
       cofhejs: ^0.1.1
       hardhat: ^2.11.0
@@ -3142,7 +3142,7 @@ snapshots:
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
 
-  cofhe-hardhat-plugin@file:../cofhe-hardhat-plugin(cofhejs@0.1.2)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2)):
+  cofhe-hardhat-plugin@0.1.4-alpha.1(cofhejs@0.1.2)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2)):
     dependencies:
       '@fhenixprotocol/cofhe-contracts': 0.0.13
       '@fhenixprotocol/cofhe-mock-contracts': 0.0.2(@fhenixprotocol/cofhe-contracts@0.0.13)(@openzeppelin/contracts-upgradeable@5.2.0(@openzeppelin/contracts@5.2.0))(@openzeppelin/contracts@5.2.0)
