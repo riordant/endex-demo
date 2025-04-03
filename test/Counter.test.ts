@@ -1,23 +1,35 @@
 import { loadFixture } from '@nomicfoundation/hardhat-toolbox/network-helpers'
 import { expectResultSuccess, expectResultValue, initializeWithHardhatSigner, mock_expectPlaintext, localcofheFundWalletIfNeeded } from 'cofhe-hardhat-plugin'
 import hre from 'hardhat'
-import { cofhejs, Encryptable, EncryptStep, FheTypes } from 'cofhejs/node'
+import { cofhejs, Encryptable, EncryptStep, Environment, FheTypes } from 'cofhejs/node'
 import { expect } from 'chai'
 
 describe('Counter', function () {
-
 	function sleep(ms: number): Promise<void> {
-		return new Promise(resolve => setTimeout(resolve, ms));
+		return new Promise((resolve) => setTimeout(resolve, ms))
+	}
+
+	const getEnvironmentFromNetwork = (network: string): Environment => {
+		switch (network) {
+			case 'localcofhe':
+				return 'LOCAL'
+			case 'hardhat':
+				return 'MOCK'
+			case 'arbitrum-sepolia':
+				return 'TESTNET'
+			default:
+				throw new Error(`Unsupported network: ${network}`)
+		}
 	}
 
 	const permittedCofheEnvironment = (env: string) => {
 		switch (env) {
 			case 'LOCAL':
-				return hre.network.name === 'localcofhe';
+				return hre.network.name === 'localcofhe'
 			case 'MOCK':
-				return hre.network.name === 'hardhat';
+				return hre.network.name === 'hardhat'
 			default:
-				return false;
+				return false
 		}
 	}
 
@@ -32,9 +44,9 @@ describe('Counter', function () {
 	}
 
 	describe('Functionality', function () {
-		beforeEach(function() {
+		beforeEach(function () {
 			if (!permittedCofheEnvironment('MOCK')) {
-			  this.skip();
+				this.skip()
 			}
 		})
 
@@ -49,7 +61,7 @@ describe('Counter', function () {
 		it('cofhejs unseal (mocks)', async function () {
 			const { counter, bob } = await loadFixture(deployCounterFixture)
 
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: isLocalCofhe() ? 'LOCAL' : 'MOCK' }))
+			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: getEnvironmentFromNetwork(hre.network.name) }))
 
 			const count = await counter.count()
 			const unsealedResult = await cofhejs.unseal(count, FheTypes.Uint32)
@@ -65,7 +77,7 @@ describe('Counter', function () {
 		it('cofhejs encrypt (mocks)', async function () {
 			const { counter, bob } = await loadFixture(deployCounterFixture)
 
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: isLocalCofhe() ? 'LOCAL' : 'MOCK' }))
+			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: getEnvironmentFromNetwork(hre.network.name) }))
 
 			const setState = (step: EncryptStep) => {
 				console.log(`Encrypt step - ${step}`)
@@ -85,17 +97,17 @@ describe('Counter', function () {
 	})
 
 	describe('Functionality (localcofhe)', function () {
-		beforeEach(async function() {
+		beforeEach(async function () {
 			if (!permittedCofheEnvironment('LOCAL')) {
-			  this.skip();
+				this.skip()
 			}
-			
+
 			const [signer, signer2, bob, alice] = await hre.ethers.getSigners()
 			await localcofheFundWalletIfNeeded(hre, bob.address)
 		})
 
 		it('Should increment the counter & unseal (localcofhe)', async function () {
-			const { counter, bob } = await deployCounterFixture();
+			const { counter, bob } = await deployCounterFixture()
 			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: 'LOCAL' }))
 
 			await counter.connect(bob).increment()
@@ -106,9 +118,9 @@ describe('Counter', function () {
 		})
 
 		it('cofhejs encrypt & decrypt (localcofhe)', async function () {
-			const { counter, bob } = await deployCounterFixture();
+			const { counter, bob } = await deployCounterFixture()
 
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment:'LOCAL' }))
+			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: 'LOCAL' }))
 
 			const setState = (step: EncryptStep) => {
 				console.log(`Encrypt step - ${step}`)
@@ -123,34 +135,33 @@ describe('Counter', function () {
 			const decryptedResult = await cofhejs.decrypt(count, FheTypes.Uint32)
 			console.log('decryptedResult', decryptedResult)
 			expectResultValue(decryptedResult, 5n)
-		})		
+		})
 
 		it('On-chain decrypt (localcofhe)', async function () {
-			const { counter, bob } = await deployCounterFixture();
+			const { counter, bob } = await deployCounterFixture()
 
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment:'LOCAL' }))
+			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: 'LOCAL' }))
 
 			await counter.connect(bob).increment()
 			await counter.connect(bob).increment()
 			await counter.connect(bob).increment()
 
 			await counter.connect(bob).decryptCounter()
-			
+
 			let maxAttempts = 10
-			let count = 0n;
+			let count = 0n
 			while (maxAttempts > 0) {
 				try {
-					count = await counter.connect(bob).getDecryptedValue();
-					maxAttempts = 0;
+					count = await counter.connect(bob).getDecryptedValue()
+					maxAttempts = 0
 				} catch (error) {
 					console.error('Error', error)
 				}
-				maxAttempts--;
+				maxAttempts--
 				await sleep(1000)
 			}
 
-			expect(count).equal(3n);
-			
+			expect(count).equal(3n)
 		})
-	})	
+	})
 })
