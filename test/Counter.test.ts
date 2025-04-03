@@ -1,5 +1,12 @@
 import { loadFixture } from '@nomicfoundation/hardhat-toolbox/network-helpers'
-import { expectResultSuccess, expectResultValue, initializeWithHardhatSigner, mock_expectPlaintext, localcofheFundWalletIfNeeded } from 'cofhe-hardhat-plugin'
+import {
+	expectResultSuccess,
+	expectResultValue,
+	cofhejs_initializeWithHardhatSigner,
+	mock_expectPlaintext,
+	localcofheFundWalletIfNeeded,
+	isPermittedCofheEnvironment,
+} from 'cofhe-hardhat-plugin'
 import hre from 'hardhat'
 import { cofhejs, Encryptable, EncryptStep, Environment, FheTypes } from 'cofhejs/node'
 import { expect } from 'chai'
@@ -7,30 +14,6 @@ import { expect } from 'chai'
 describe('Counter', function () {
 	function sleep(ms: number): Promise<void> {
 		return new Promise((resolve) => setTimeout(resolve, ms))
-	}
-
-	const getEnvironmentFromNetwork = (network: string): Environment => {
-		switch (network) {
-			case 'localcofhe':
-				return 'LOCAL'
-			case 'hardhat':
-				return 'MOCK'
-			case 'arbitrum-sepolia':
-				return 'TESTNET'
-			default:
-				throw new Error(`Unsupported network: ${network}`)
-		}
-	}
-
-	const permittedCofheEnvironment = (env: string) => {
-		switch (env) {
-			case 'LOCAL':
-				return hre.network.name === 'localcofhe'
-			case 'MOCK':
-				return hre.network.name === 'hardhat'
-			default:
-				return false
-		}
 	}
 
 	async function deployCounterFixture() {
@@ -45,9 +28,7 @@ describe('Counter', function () {
 
 	describe('Functionality', function () {
 		beforeEach(function () {
-			if (!permittedCofheEnvironment('MOCK')) {
-				this.skip()
-			}
+			if (!isPermittedCofheEnvironment(hre, 'MOCK')) this.skip()
 		})
 
 		it('Should increment the counter', async function () {
@@ -61,7 +42,7 @@ describe('Counter', function () {
 		it('cofhejs unseal (mocks)', async function () {
 			const { counter, bob } = await loadFixture(deployCounterFixture)
 
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: getEnvironmentFromNetwork(hre.network.name) }))
+			expectResultSuccess(await cofhejs_initializeWithHardhatSigner(bob))
 
 			const count = await counter.count()
 			const unsealedResult = await cofhejs.unseal(count, FheTypes.Uint32)
@@ -77,7 +58,7 @@ describe('Counter', function () {
 		it('cofhejs encrypt (mocks)', async function () {
 			const { counter, bob } = await loadFixture(deployCounterFixture)
 
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: getEnvironmentFromNetwork(hre.network.name) }))
+			expectResultSuccess(await cofhejs_initializeWithHardhatSigner(bob))
 
 			const setState = (step: EncryptStep) => {
 				console.log(`Encrypt step - ${step}`)
@@ -98,9 +79,7 @@ describe('Counter', function () {
 
 	describe('Functionality (localcofhe)', function () {
 		beforeEach(async function () {
-			if (!permittedCofheEnvironment('LOCAL')) {
-				this.skip()
-			}
+			if (!isPermittedCofheEnvironment(hre, 'LOCAL')) this.skip()
 
 			const [signer, signer2, bob, alice] = await hre.ethers.getSigners()
 			await localcofheFundWalletIfNeeded(hre, bob.address)
@@ -108,7 +87,7 @@ describe('Counter', function () {
 
 		it('Should increment the counter & unseal (localcofhe)', async function () {
 			const { counter, bob } = await deployCounterFixture()
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: 'LOCAL' }))
+			expectResultSuccess(await cofhejs_initializeWithHardhatSigner(bob))
 
 			await counter.connect(bob).increment()
 			let count = await counter.count()
@@ -120,7 +99,7 @@ describe('Counter', function () {
 		it('cofhejs encrypt & decrypt (localcofhe)', async function () {
 			const { counter, bob } = await deployCounterFixture()
 
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: 'LOCAL' }))
+			expectResultSuccess(await cofhejs_initializeWithHardhatSigner(bob))
 
 			const setState = (step: EncryptStep) => {
 				console.log(`Encrypt step - ${step}`)
@@ -140,7 +119,7 @@ describe('Counter', function () {
 		it('On-chain decrypt (localcofhe)', async function () {
 			const { counter, bob } = await deployCounterFixture()
 
-			expectResultSuccess(await initializeWithHardhatSigner(bob, { environment: 'LOCAL' }))
+			expectResultSuccess(await cofhejs_initializeWithHardhatSigner(bob))
 
 			await counter.connect(bob).increment()
 			await counter.connect(bob).increment()
