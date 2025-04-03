@@ -54,6 +54,13 @@ pnpm install
 - `test/` - Test files
 - `ignition/` - Hardhat Ignition deployment modules
 
+## How to use
+
+### Faucet
+
+- `pnpm localcofhe:faucet --address YOUR_ADDRESS`
+
+
 ## License
 
 MIT

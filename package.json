@@ -5,22 +5,21 @@
 	"scripts": {
 		"test": "REPORT_GAS=true hardhat test --network hardhat",
 		"// test:hardhat": "REPORT_GAS=true hardhat test --network hardhat",
-		"// test:localcofhe": "REPORT_GAS=true hardhat test --network localcofhe",
+		"test:localcofhe": "REPORT_GAS=true hardhat test --network localcofhe",
 		"clean": "rimraf ./artifacts ./cache ./coverage ./types ./coverage.json ./deployments/localcofhe",
 		"compile": "hardhat compile",
 		"--------------": "",
 		" --- cofhe ---": "",
 		"  --------------": "",
-		"// cofhe:faucet": "hardhat task:cofhe:usefaucet",
 		"// task:deploy": "hardhat deploy",
 		"// task:addCount": "hardhat task:addCount",
 		"// task:getCount": "hardhat task:getCount",
-		"// task:getFunds": "hardhat task:getFunds",
+		
 		"// -------------------": "",
 		"//  --- localcofhe ---": "",
 		"//   -------------------": "",
 		"// localcofhe:start": "hardhat localcofhe:start --clean true",
-		"// localcofhe:faucet": "hardhat task:cofhe:usefaucet",
+		"localcofhe:faucet": "hardhat task:cofhe:usefaucet --network localcofhe",
 		"// localcofhe:deploy": "hardhat deploy --network localcofhe",
 		"// localcofhe:stop": "hardhat localcofhe:stop"
 	},
@@ -60,6 +59,7 @@
 		"ts-node": ">=8.0.0",
 		"typechain": "^8.3.0",
 		"typescript": ">=4.5.0",
-		"cofhe-hardhat-plugin": "v0.1.4-alpha.2"
+    "cofhe-hardhat-plugin": "v0.1.4-alpha.2",
+		"dotenv": "^16.4.7"
 	}
 }

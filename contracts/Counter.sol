@@ -40,4 +40,16 @@ contract Counter {
         FHE.allowThis(count);
         FHE.allowSender(count);
     }
+
+    function decryptCounter() public {
+        FHE.decrypt(count);
+    }
+
+    function getDecryptedValue() external view returns(uint256) {
+        (uint256 value, bool decrypted) = FHE.getDecryptResultSafe(count);
+        if (!decrypted)
+            revert("Value is not ready");
+
+        return value;
+    }    
 }
