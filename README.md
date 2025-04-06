@@ -120,6 +120,47 @@ if (!isPermittedCofheEnvironment(hre, 'MOCK')) {
 }
 ```
 
+## Links and Additional Resources
+
+### `cofhejs`
+
+[`cofhejs`](https://github.com/FhenixProtocol/cofhejs) is the JavaScript/TypeScript library for interacting with FHE smart contracts. It provides functions for encryption, decryption, and unsealing FHE values.
+
+#### Key Features
+
+- Encryption of data before sending to FHE contracts
+- Unsealing encrypted values from contracts
+- Managing permits for secure contract interactions
+- Integration with Web3 libraries (ethers.js and viem)
+
+### `cofhe-mock-contracts`
+
+[`cofhe-mock-contracts`](https://github.com/FhenixProtocol/cofhe-mock-contracts) provides mock implementations of CoFHE contracts for testing FHE functionality without the actual coprocessor.
+
+#### Features
+
+- Mock implementations of core CoFHE contracts:
+  - MockTaskManager
+  - MockQueryDecrypter
+  - MockZkVerifier
+  - ACL (Access Control List)
+- Synchronous operation simulation with mock delays
+- On-chain access to unencrypted values for testing
+
+#### Integration with Hardhat and cofhejs
+
+Both `cofhejs` and `cofhe-hardhat-plugin` interact directly with the mock contracts:
+
+- When imported in `hardhat.config.ts`, `cofhe-hardhat-plugin` injects necessary mock contracts into the Hardhat testnet
+- `cofhejs` automatically detects mock contracts and adjusts behavior for test environments
+
+#### Mock Behavior Differences
+
+- **Symbolic Execution**: In mocks, ciphertext hashes point to plaintext values stored on-chain
+- **On-chain Decryption**: Mock decryption adds simulated delays to mimic real behavior
+- **ZK Verification**: Mock verifier handles on-chain storage of encrypted inputs
+- **Off-chain Decryption**: When using `cofhejs.unseal()`, mocks return plaintext values directly from on-chain storage
+
 ## License
 
 MIT
