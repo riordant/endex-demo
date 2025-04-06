@@ -25,11 +25,13 @@
 		"//   --------------------": "",
 		"eth-sepolia:deploy-counter": "hardhat deploy-counter --network eth-sepolia",
 		"eth-sepolia:increment-counter": "hardhat increment-counter --network eth-sepolia",
+		"eth-sepolia:reset-counter": "hardhat reset-counter --network eth-sepolia",
 		"// -------------------": "",
 		"//  --- arbitrum-sepolia ---": "",
 		"//   -------------------": "",
 		"arb-sepolia:deploy-counter": "hardhat deploy-counter --network arb-sepolia",
-		"arb-sepolia:increment-counter": "hardhat increment-counter --network arb-sepolia"
+		"arb-sepolia:increment-counter": "hardhat increment-counter --network arb-sepolia",
+		"arb-sepolia:reset-counter": "hardhat reset-counter --network arb-sepolia"
 	},
 	"repository": {
 		"type": "git",

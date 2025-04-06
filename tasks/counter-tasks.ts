@@ -113,3 +113,48 @@ task("increment-counter", "Increment the counter on the deployed contract")
     const unsealedCount = await cofhejs.unseal(newCount, FheTypes.Uint32);
     console.log(unsealedCount);
   }); 
+
+
+  task("reset-counter", "reset the counter")
+  .setAction(async (_, hre: HardhatRuntimeEnvironment) => {
+    const { ethers, network } = hre;
+    
+    // Get the Counter contract address
+    const counterAddress = getDeployment(network.name, "Counter");
+    if (!counterAddress) {
+      console.error(`No Counter deployment found for network ${network.name}`);
+      console.error(`Please deploy first using: npx hardhat deploy-counter --network ${network.name}`);
+      return;
+    }
+    
+    console.log(`Using Counter at ${counterAddress} on ${network.name}`);
+    
+    // Get the signer
+    const [signer] = await ethers.getSigners();
+    console.log(`Using account: ${signer.address}`);
+    await cofhejs_initializeWithHardhatSigner(signer);
+
+    // Get the contract instance with proper typing
+    const Counter = await ethers.getContractFactory("Counter");
+    const counter = Counter.attach(counterAddress) as unknown as Counter;
+    
+    const logState = (state: EncryptStep) => {
+      console.log(`Log Encrypt State :: ${state}`);
+    };
+
+    const encryptedValue = await cofhejs.encrypt(logState, [Encryptable.uint32("2000")]);
+
+    if (encryptedValue && encryptedValue.data) {
+      console.log("Resetting counter...");
+      const tx = await counter.reset(encryptedValue.data[0]);
+      await tx.wait();
+      console.log(`Transaction hash: ${tx.hash}`);
+    }
+    
+    // Get new count
+    const newCount = await counter.count();
+    console.log(`New count: ${newCount}`);
+    console.log("Unsealing new count...");
+    const unsealedCount = await cofhejs.unseal(newCount, FheTypes.Uint32);
+    console.log(unsealedCount);
+  }); 
