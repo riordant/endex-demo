@@ -12,8 +12,8 @@ importers:
         specifier: 0.0.13
         version: 0.0.13
       '@fhenixprotocol/cofhe-mock-contracts':
-        specifier: ^0.0.3
-        version: 0.0.3(@fhenixprotocol/cofhe-contracts@0.0.13)(@openzeppelin/contracts-upgradeable@5.2.0(@openzeppelin/contracts@5.2.0))(@openzeppelin/contracts@5.2.0)
+        specifier: ^0.0.4
+        version: 0.0.4(@fhenixprotocol/cofhe-contracts@0.0.13)(@openzeppelin/contracts-upgradeable@5.2.0(@openzeppelin/contracts@5.2.0))(@openzeppelin/contracts@5.2.0)
       '@nomicfoundation/hardhat-chai-matchers':
         specifier: ^2.0.0
         version: 2.0.8(@nomicfoundation/hardhat-ethers@3.0.8(ethers@6.13.5)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2)))(chai@4.5.0)(ethers@6.13.5)(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.14)(typescript@5.8.2))(typescript@5.8.2))
@@ -210,6 +210,13 @@ packages:
 
   '@fhenixprotocol/cofhe-mock-contracts@0.0.3':
     resolution: {integrity: sha512-81tGSbupe+7aprpc97lAOJHbr5YIcxHAEBX05wc085Sz1/Oxlohii8jsV7yJnzx2lVRMSqyD453jjfkcKsJ6cA==}
+    peerDependencies:
+      '@fhenixprotocol/cofhe-contracts': 0.0.13
+      '@openzeppelin/contracts': ^5.0.0
+      '@openzeppelin/contracts-upgradeable': ^5.0.0
+
+  '@fhenixprotocol/cofhe-mock-contracts@0.0.4':
+    resolution: {integrity: sha512-kL4Q8wJKljxwlMYasdzH3/HD5nJM59ckUzdn7riDJ9Chmw4DWVVJ2tOVohn8kJyJhlHmKWUxbSqQmgJEQ0y87Q==}
     peerDependencies:
       '@fhenixprotocol/cofhe-contracts': 0.0.13
       '@openzeppelin/contracts': ^5.0.0
@@ -2484,6 +2491,12 @@ snapshots:
       '@openzeppelin/contracts': 5.2.0
 
   '@fhenixprotocol/cofhe-mock-contracts@0.0.3(@fhenixprotocol/cofhe-contracts@0.0.13)(@openzeppelin/contracts-upgradeable@5.2.0(@openzeppelin/contracts@5.2.0))(@openzeppelin/contracts@5.2.0)':
+    dependencies:
+      '@fhenixprotocol/cofhe-contracts': 0.0.13
+      '@openzeppelin/contracts': 5.2.0
+      '@openzeppelin/contracts-upgradeable': 5.2.0(@openzeppelin/contracts@5.2.0)
+
+  '@fhenixprotocol/cofhe-mock-contracts@0.0.4(@fhenixprotocol/cofhe-contracts@0.0.13)(@openzeppelin/contracts-upgradeable@5.2.0(@openzeppelin/contracts@5.2.0))(@openzeppelin/contracts@5.2.0)':
     dependencies:
       '@fhenixprotocol/cofhe-contracts': 0.0.13
       '@openzeppelin/contracts': 5.2.0

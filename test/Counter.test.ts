@@ -8,7 +8,7 @@ import {
 	isPermittedCofheEnvironment,
 } from 'cofhe-hardhat-plugin'
 import hre from 'hardhat'
-import { cofhejs, Encryptable, EncryptStep, Environment, FheTypes } from 'cofhejs/node'
+import { cofhejs, Encryptable, EncryptStep, FheTypes } from 'cofhejs/node'
 import { expect } from 'chai'
 
 describe('Counter', function () {
