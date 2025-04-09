@@ -61,7 +61,7 @@
 		"@types/mocha": ">=9.1.0",
 		"@types/node": ">=18.0.0",
 		"chai": "^4.2.0",
-		"cofhe-hardhat-plugin": "^0.2.0",
+		"cofhe-hardhat-plugin": "file:../cofhe-hardhat-plugin",
 		"cofhejs": "^0.2.0",
 		"dotenv": "^16.4.7",
 		"ethers": "^6.4.0",
