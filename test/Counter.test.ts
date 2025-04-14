@@ -66,11 +66,7 @@ describe('Counter', function () {
 
 			await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(bob))
 
-			const setState = (step: EncryptStep) => {
-				console.log(`Encrypt step - ${step}`)
-			}
-
-			const [encryptedInput] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt(setState, [Encryptable.uint32(5n)] as const))
+			const [encryptedInput] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint32(5n)] as const))
 			await hre.cofhe.mocks.expectPlaintext(encryptedInput.ctHash, 5n)
 
 			await counter.connect(bob).reset(encryptedInput)
@@ -107,11 +103,11 @@ describe('Counter', function () {
 
 			await hre.cofhe.expectResultSuccess(await hre.cofhe.initializeWithHardhatSigner(bob))
 
-			const setState = (step: EncryptStep) => {
+			const logState = (step: EncryptStep) => {
 				console.log(`Encrypt step - ${step}`)
 			}
 
-			const [encryptedInput] = await hre.cofhe.expectResultSuccess(await cofhejs.encrypt(setState, [Encryptable.uint32(5n)] as const))
+			const [encryptedInput] = await hre.cofhe.expectResultSuccess(await cofhejs.encrypt([Encryptable.uint32(5n)] as const, logState))
 
 			await counter.connect(bob).reset(encryptedInput)
 
