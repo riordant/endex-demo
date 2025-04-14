@@ -32,7 +32,7 @@ task('reset-counter', 'reset the counter').setAction(async (_, hre: HardhatRunti
 		console.log(`Log Encrypt State :: ${state}`)
 	}
 
-	const encryptedValue = await cofhejs.encrypt(logState, [Encryptable.uint32('2000')])
+	const encryptedValue = await cofhejs.encrypt([Encryptable.uint32('2000')] as const, logState)
 
 	if (encryptedValue && encryptedValue.data) {
 		console.log('Resetting counter...')
