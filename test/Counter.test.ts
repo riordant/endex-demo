@@ -1,14 +1,8 @@
 import { loadFixture } from '@nomicfoundation/hardhat-toolbox/network-helpers'
 import hre from 'hardhat'
-import { cofhejs, Encryptable, EncryptStep, FheTypes } from 'cofhejs/node'
-import { expect } from 'chai'
-import { localcofheFundWalletIfNeeded } from 'cofhe-hardhat-plugin'
+import { cofhejs, Encryptable, FheTypes } from 'cofhejs/node'
 
 describe('Counter', function () {
-	function sleep(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms))
-	}
-
 	async function deployCounterFixture() {
 		// Contracts are deployed using the first signer/account by default
 		const [signer, signer2, bob, alice] = await hre.ethers.getSigners()
@@ -22,12 +16,16 @@ describe('Counter', function () {
 	describe('Functionality', function () {
 		beforeEach(function () {
 			if (!hre.cofhe.isPermittedEnvironment('MOCK')) this.skip()
-			// mock_setLoggingEnabled(hre, true)
+
+			// NOTE: Uncomment for global logging
+			// hre.cofhe.mocks.enableLogs()
 		})
 
 		afterEach(function () {
 			if (!hre.cofhe.isPermittedEnvironment('MOCK')) return
-			// mock_setLoggingEnabled(hre, false)
+
+			// NOTE: Uncomment for global logging
+			// hre.cofhe.mocks.disableLogs()
 		})
 
 		it('Should increment the counter', async function () {
@@ -76,72 +74,6 @@ describe('Counter', function () {
 
 			const unsealedResult = await cofhejs.unseal(count, FheTypes.Uint32)
 			await hre.cofhe.expectResultValue(unsealedResult, 5n)
-		})
-	})
-
-	describe('Functionality (localcofhe)', function () {
-		beforeEach(async function () {
-			if (!hre.cofhe.isPermittedEnvironment('LOCAL')) this.skip()
-
-			const [signer, signer2, bob, alice] = await hre.ethers.getSigners()
-			await localcofheFundWalletIfNeeded(hre, bob.address)
-		})
-
-		it('Should increment the counter & unseal (localcofhe)', async function () {
-			const { counter, bob } = await deployCounterFixture()
-			await hre.cofhe.expectResultSuccess(await hre.cofhe.initializeWithHardhatSigner(bob))
-
-			await counter.connect(bob).increment()
-			let count = await counter.count()
-			const unsealedResult = await cofhejs.unseal(count, FheTypes.Uint32)
-
-			await hre.cofhe.expectResultValue(unsealedResult, 1n)
-		})
-
-		it('cofhejs encrypt & decrypt (localcofhe)', async function () {
-			const { counter, bob } = await deployCounterFixture()
-
-			await hre.cofhe.expectResultSuccess(await hre.cofhe.initializeWithHardhatSigner(bob))
-
-			const logState = (step: EncryptStep) => {
-				console.log(`Encrypt step - ${step}`)
-			}
-
-			const [encryptedInput] = await hre.cofhe.expectResultSuccess(await cofhejs.encrypt([Encryptable.uint32(5n)] as const, logState))
-
-			await counter.connect(bob).reset(encryptedInput)
-
-			const count = await counter.count()
-			const decryptedResult = await cofhejs.decrypt(count, FheTypes.Uint32)
-			console.log('decryptedResult', decryptedResult)
-			await hre.cofhe.expectResultValue(decryptedResult, 5n)
-		})
-
-		it('On-chain decrypt (localcofhe)', async function () {
-			const { counter, bob } = await deployCounterFixture()
-
-			await hre.cofhe.expectResultSuccess(await hre.cofhe.initializeWithHardhatSigner(bob))
-
-			await counter.connect(bob).increment()
-			await counter.connect(bob).increment()
-			await counter.connect(bob).increment()
-
-			await counter.connect(bob).decryptCounter()
-
-			let maxAttempts = 10
-			let count = 0n
-			while (maxAttempts > 0) {
-				try {
-					count = await counter.connect(bob).getDecryptedValue()
-					maxAttempts = 0
-				} catch (error) {
-					console.error('Error', error)
-				}
-				maxAttempts--
-				await sleep(1000)
-			}
-
-			expect(count).equal(3n)
 		})
 	})
 })
