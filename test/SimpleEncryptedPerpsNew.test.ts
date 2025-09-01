@@ -1,7 +1,7 @@
 // test/SimpleEncryptedPerpsNew.async-funding-and-liquidation.ts
 import { loadFixture, time } from '@nomicfoundation/hardhat-toolbox/network-helpers'
 import hre from 'hardhat'
-import { cofhejs, Encryptable } from 'cofhejs/node'
+import { cofhejs, Encryptable, FheTypes } from 'cofhejs/node' // ensure FheTypes is imported for unseal
 import { expect } from 'chai'
 
 function toUSDC(n: bigint) { return n * 10n ** 6n }    // 6 decimals
@@ -258,5 +258,41 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
     // With negative rate: cumFundingLong decreases, cumFundingShort increases
     expect(afterLong < beforeLong).to.be.true
     expect(afterShort > beforeShort).to.be.true
+  })
+
+  it('clamps encrypted size up to MIN_NOTIONAL_USDC when user requests too small (incl. zero)', async function () {
+    const { perps, perpsAddr, usdc, user, lp } = await loadFixture(deployFixture)
+  
+    // LP funds
+    await usdc.mint(lp.address, toUSDC(1_000_000n))
+    await usdc.connect(lp).approve(perpsAddr, hre.ethers.MaxUint256)
+    await perps.connect(lp).lpDeposit(toUSDC(1_000_000n))
+  
+    // User funds
+    await usdc.mint(user.address, toUSDC(50_000n))
+    await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
+  
+    // Init CoFHE
+    await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
+  
+    // Read contract min constant
+    const minNotional = BigInt(await perps.MIN_NOTIONAL_USDC())
+  
+    // Request an extremely small size (e.g., 0 USDC)
+    const requested = 0n
+    const [encTiny] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.uint256(requested)])
+    )
+  
+    const collateral = toUSDC(1_000n)
+  
+    // Open long with tiny requested size → should be clamped up to MIN_NOTIONAL_USDC
+    await perps.connect(user).openPosition(true, encTiny, collateral, 0, 0)
+  
+    const pos = await perps.getPosition(1)
+  
+    // Unseal the encrypted size to verify clamp
+    const unsealed = await cofhejs.unseal(pos.size, FheTypes.Uint256)
+    await hre.cofhe.expectResultValue(unsealed, minNotional)
   })
 })

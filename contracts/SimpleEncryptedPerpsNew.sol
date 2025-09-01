@@ -15,8 +15,9 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     using SafeERC20 for IERC20;
 
     // ---------- Parameters ----------
-    uint256 public constant MAX_LEVERAGE_X = 5;      // 5x (I = 20%)
-    uint256 public constant CLOSE_FEE_BPS   = 10;    // 10 bps close fee
+    uint256 public constant MAX_LEVERAGE_X = 5;       // 5x (I = 20%)
+    uint256 public constant CLOSE_FEE_BPS   = 10;     // 10 bps close fee
+    uint256 public constant MIN_NOTIONAL_USDC = 10e6; // 10 USDC (6 decimals)
     uint256 public constant BPS_DIVISOR     = 10_000;
 
     // Tie maintenance to initial: M = alpha * I
@@ -200,6 +201,16 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     // TRADING API
     // ===============================
 
+    // Add near other constants
+    
+    /**
+     * @notice Opens a position. 
+       @dev The requested encrypted `size_` is PRIVATELY CLAMPED
+     *      into [MIN_NOTIONAL_USDC, collateral * MAX_LEVERAGE_X]. If `size_` is below
+     *      the minimum (including zero), the effective size is set to MIN_NOTIONAL_USDC.
+     *      Frontends should enforce min-size to avoid surprises for users interacting
+     *      directly with the contract.
+     */
     function openPosition(
         bool isLong,
         InEuint256 calldata size_,
@@ -207,26 +218,30 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
         uint256 stopLossPrice,
         uint256 takeProfitPrice
     ) external override {
-        // Update funding indices first
+        // Accrue funding before opening
         pokeFunding();
-
-        // Encrypted size (cap leverage privately)
-        euint256 _size = FHE.asEuint256(size_);
-        euint256 max_size = FHE.asEuint256(collateral * MAX_LEVERAGE_X);
-        euint256 size = FHE.select(FHE.gt(_size, max_size), max_size, _size);
-
-        require(collateral > 0, "collateral=0");
-
-        // Pull collateral
-        usdc.safeTransferFrom(msg.sender, address(this), collateral);
-        usdcBalance += collateral;
 
         // Get entry price
         (, int256 price,,,) = ethUsdFeed.latestRoundData();
         require(price > 0, "price");
-
+        require(collateral > 0, "collateral=0");
+    
+        // Clamp encrypted requested size to [MIN_NOTIONAL_USDC, collateral * MAX_LEVERAGE_X]
+        euint256 _size    = FHE.asEuint256(size_);
+        euint256 minEnc   = FHE.asEuint256(MIN_NOTIONAL_USDC);
+        euint256 maxEnc   = FHE.asEuint256(collateral * MAX_LEVERAGE_X);
+    
+        // size1 = max(_size, MIN_NOTIONAL_USDC)
+        euint256 size1    = FHE.select(FHE.lt(_size, minEnc), minEnc, _size);
+        // size  = min(size1, collateral * MAX_LEVERAGE_X)
+        euint256 size     = FHE.select(FHE.gt(size1, maxEnc), maxEnc, size1);
+    
+        // Pull collateral
+        usdc.safeTransferFrom(msg.sender, address(this), collateral);
+        usdcBalance += collateral;
+    
         uint256 id = nextPositionId++;
-
+    
         positions[id] = Position({
             owner: msg.sender,
             positionId: id,
@@ -238,14 +253,14 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             takeProfitPrice: takeProfitPrice,
             settlementPrice: 0,
             status: Status.Open,
-            cause: CloseCause.UserClose, // default; will be overwritten at setup
+            cause: CloseCause.UserClose, // default; may be overwritten during close/liquidation
             entryFundingX18: (isLong ? cumFundingLongX18 : cumFundingShortX18),
             pendingLiqFlagEnc: FHE.asEuint256(0),
             pendingLiqCheckPrice: 0,
             liqCheckPending: false
         });
         Position storage p = positions[id];
-
+    
         // Update encrypted OI aggregates
         if (isLong) {
             encLongOI = FHE.add(encLongOI, size);
@@ -254,7 +269,7 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             encShortOI = FHE.add(encShortOI, size);
             emit EncryptedOIUpdated(false, true, id);
         }
-
+    
         // Permissions for ciphertexts
         FHE.allowThis(p.size);
         FHE.allowSender(p.size);
@@ -262,7 +277,7 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
         FHE.allowSender(p.pendingLiqFlagEnc);
         FHE.allowThis(encLongOI);
         FHE.allowThis(encShortOI);
-
+    
         emit PositionOpened(id, msg.sender, isLong, size, collateral, uint256(price));
     }
 
