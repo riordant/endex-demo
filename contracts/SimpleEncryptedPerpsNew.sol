@@ -14,22 +14,26 @@ interface IAggregatorV3 {
 contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     using SafeERC20 for IERC20;
 
-    // -------- Constants --------
-    uint256 public constant MAX_LEVERAGE_X = 5; // 5x
-    uint256 public constant CLOSE_FEE_BPS = 10; // 0.1% close fee
-    uint256 public constant BPS_DIVISOR = 10_000;
+    // ---------- Parameters ----------
+    uint256 public constant MAX_LEVERAGE_X = 5;      // 5x (I = 20%)
+    uint256 public constant CLOSE_FEE_BPS   = 10;    // 10 bps close fee
+    uint256 public constant BPS_DIVISOR     = 10_000;
 
-    // funding / math scales
+    // Tie maintenance to initial: M = alpha * I
+    uint256 public constant ALPHA_BPS            = 5_000;                    // 50% of initial
+    uint256 public constant INITIAL_MARGIN_BPS   = 10_000 / MAX_LEVERAGE_X;  // = 2_000 bps at 5x
+    uint256 public constant MAINT_MARGIN_BPS     = (ALPHA_BPS * INITIAL_MARGIN_BPS) / 10_000; // = 1_000 bps
+
+    // Math scales
     uint256 public constant ONE_X18 = 1e18;
     euint256 public immutable ENC_ONE_X18;
-    uint256 public constant MAINT_MARGIN_BPS = 100; // 1%
 
-    // funding rate cap and linear coefficient (tunable)
-    euint256 public immutable FUNDING_K_X12; // scales encrypted skew to rate numerator
-    uint256 public constant MAX_ABS_FUNDING_RATE_PER_SEC_X18 = 1e9; // 1e-9 per sec (~0.0864%/day)
+    // Funding rate (linear from skew), clamped
+    euint256 public immutable FUNDING_K_X12; // scales encrypted |skew| to numerator (K)
+    uint256 public constant MAX_ABS_FUNDING_RATE_PER_SEC_X18 = 1e9; // 1e-9 / sec (~0.0864%/day)
 
     // Tokens and oracle
-    IERC20 public immutable usdc; // 6 decimals
+    IERC20       public immutable usdc;        // 6 decimals
     IAggregatorV3 public immutable ethUsdFeed; // 8 decimals
 
     // LP accounting
@@ -41,39 +45,39 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     uint256 public nextPositionId = 1;
     mapping(uint256 => Position) internal positions;
 
-    // Keeper heartbeat state (last observed round)
+    // Keeper heartbeat state
     uint80 public lastRoundId;
 
-    // -------- Funding state --------
+    // ---------- Funding state ----------
     int256  public fundingRatePerSecX18; // signed, per second, X18
     int256  public cumFundingLongX18;    // signed cumulative index X18
     int256  public cumFundingShortX18;   // signed cumulative index X18
     uint256 public lastFundingUpdate;
 
-    // -------- Encrypted OI aggregates (never decrypted) --------
-    euint256 private encLongOI;  // sum of encrypted long notionals (1e6)
-    euint256 private encShortOI; // sum of encrypted short notionals (1e6)
+    // Encrypted OI aggregates (never decrypted)
+    euint256 private encLongOI;   // sum of encrypted long notionals (1e6)
+    euint256 private encShortOI;  // sum of encrypted short notionals (1e6)
 
-    // funding request state
-    bool    public fundingPending;
-    uint64  public fundingEpoch;
-    uint256 public fundingRequestedAt;
+    // Funding request state
+    bool     public fundingPending;
+    uint64   public fundingEpoch;
+    uint256  public fundingRequestedAt;
     euint256 private pendingRateNumeratorEnc; // |skew| * K (encrypted)
     euint256 private pendingSkewFlagEnc;      // 0/1 encrypted (longOI >= shortOI)
 
     constructor(IERC20 _usdc, IAggregatorV3 _ethUsdFeed) {
-        usdc = _usdc;
+        usdc       = _usdc;
         ethUsdFeed = _ethUsdFeed;
 
         lastFundingUpdate = block.timestamp;
 
-        encLongOI = FHE.asEuint256(0);
+        encLongOI  = FHE.asEuint256(0);
         encShortOI = FHE.asEuint256(0);
-        FUNDING_K_X12 = FHE.asEuint256(1e12);
-        ENC_ONE_X18   = FHE.asEuint256(ONE_X18);
+        FUNDING_K_X12   = FHE.asEuint256(1e12);
+        ENC_ONE_X18     = FHE.asEuint256(ONE_X18);
         pendingRateNumeratorEnc = FHE.asEuint256(0);
 
-        // Permissions for ciphertexts used by this contract
+        // CoFHE permissions for ciphertexts used by this contract
         FHE.allowThis(encLongOI);
         FHE.allowThis(encShortOI);
         FHE.allowThis(pendingRateNumeratorEnc);
@@ -164,30 +168,26 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     function commitFundingRate(uint64 epoch) external {
         require(fundingPending && epoch == fundingEpoch, "funding: no pending/epoch");
 
-        // read both decrypt results (must be ready)
-        (uint256 num,  bool r1) = FHE.getDecryptResultSafe(pendingRateNumeratorEnc); // |skew|*K (X? scale)
+        (uint256 num,  bool r1) = FHE.getDecryptResultSafe(pendingRateNumeratorEnc); // |skew| * K
         (uint256 flag, bool r2) = FHE.getDecryptResultSafe(pendingSkewFlagEnc);      // 1 if long>=short
         require(r1 && r2, "funding: not ready");
 
-        // signed numerator from flag
         int256 signedNum = (flag == 1) ? int256(num) : -int256(num);
 
-        // scale to per-second X18 (K chosen so /1e6 returns X18)
+        // Scale to per-second X18 (K chosen so /1e6 returns X18 here)
         int256 rateX18 = signedNum / int256(1e6);
 
-        // clamp
+        // Clamp
         int256 max = int256(MAX_ABS_FUNDING_RATE_PER_SEC_X18);
         if (rateX18 > max) rateX18 = max;
         else if (rateX18 < -max) rateX18 = -max;
 
-        // accrue with old rate, then set new
+        // Accrue with old rate, then set new
         pokeFunding();
         fundingRatePerSecX18 = rateX18;
 
-        // clear pending
+        // Clear pending
         fundingPending = false;
-
-        // zero the pending ciphers (optional hygiene)
         pendingRateNumeratorEnc = FHE.asEuint256(0);
         pendingSkewFlagEnc      = FHE.asEuint256(0);
         FHE.allowThis(pendingRateNumeratorEnc);
@@ -205,8 +205,7 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
         InEuint256 calldata size_,
         uint256 collateral,
         uint256 stopLossPrice,
-        uint256 takeProfitPrice,
-        uint256 liquidationPrice
+        uint256 takeProfitPrice
     ) external override {
         // Update funding indices first
         pokeFunding();
@@ -216,8 +215,9 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
         euint256 max_size = FHE.asEuint256(collateral * MAX_LEVERAGE_X);
         euint256 size = FHE.select(FHE.gt(_size, max_size), max_size, _size);
 
-        // Pull collateral
         require(collateral > 0, "collateral=0");
+
+        // Pull collateral
         usdc.safeTransferFrom(msg.sender, address(this), collateral);
         usdcBalance += collateral;
 
@@ -234,11 +234,11 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             size: size,
             collateral: collateral,
             entryPrice: uint256(price),
-            liquidationPrice: liquidationPrice,   // TODO: compute internally in future pass
-            stopLossPrice: stopLossPrice,         // TODO: move to encrypted later
-            takeProfitPrice: takeProfitPrice,     // TODO: move to encrypted later
+            stopLossPrice: stopLossPrice,
+            takeProfitPrice: takeProfitPrice,
             settlementPrice: 0,
             status: Status.Open,
+            cause: CloseCause.UserClose, // default; will be overwritten at setup
             entryFundingX18: (isLong ? cumFundingLongX18 : cumFundingShortX18),
             pendingLiqFlagEnc: FHE.asEuint256(0),
             pendingLiqCheckPrice: 0,
@@ -255,13 +255,11 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             emit EncryptedOIUpdated(false, true, id);
         }
 
-        // Permissions for size ciphertext
+        // Permissions for ciphertexts
         FHE.allowThis(p.size);
         FHE.allowSender(p.size);
-
         FHE.allowThis(p.pendingLiqFlagEnc);
         FHE.allowSender(p.pendingLiqFlagEnc);
-
         FHE.allowThis(encLongOI);
         FHE.allowThis(encShortOI);
 
@@ -273,7 +271,7 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
         require(p.owner == msg.sender, "not owner");
         require(p.status == Status.Open, "not open");
 
-        _setupSettlement(p, _markPrice());
+        _setupSettlement(p, _markPrice(), CloseCause.UserClose);
     }
 
     function settlePositions(uint256[] calldata positionIds) external override {
@@ -301,8 +299,12 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             bool hitTp = p.takeProfitPrice > 0 && (p.isLong ? price >= p.takeProfitPrice : price <= p.takeProfitPrice);
             bool hitSl = p.stopLossPrice   > 0 && (p.isLong ? price <= p.stopLossPrice   : price >= p.stopLossPrice);
 
-            if (hitTp || hitSl) {
-                _setupSettlement(p, price);
+            if (hitTp) {
+                _setupSettlement(p, price, CloseCause.TakeProfit);
+                continue;
+            }
+            if (hitSl) {
+                _setupSettlement(p, price, CloseCause.StopLoss);
                 continue;
             }
             // NOTE: liquidation handled via requestLiqChecks/finalizeLiqChecks
@@ -357,7 +359,7 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             p.liqCheckPending = false;
 
             if (flag == 1) {
-                _setupSettlement(p, p.pendingLiqCheckPrice);
+                _setupSettlement(p, p.pendingLiqCheckPrice, CloseCause.Liquidation);
             }
 
             FHE.allowThis(p.pendingLiqFlagEnc);
@@ -375,7 +377,6 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     }
 
     /// @dev Price PnL buckets (non-negative), X18-scaled: routes magnitude to gain or loss.
-    /// gainX18/lossX18 are encrypted and safe for euint256 arithmetic.
     function _encPriceBucketsX18(
         Position storage p,
         uint256 price
@@ -383,10 +384,10 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
         // ratioX18 = 1e18 * P / E  (plaintext ratio for sign; encrypted magnitude below)
         uint256 ratioX18 = (price * ONE_X18) / p.entryPrice;
         uint256 deltaX18 = ratioX18 >= ONE_X18 ? (ratioX18 - ONE_X18) : (ONE_X18 - ratioX18);
-    
+
         // Encrypted magnitude = size * |ratio - 1|
         euint256 encMagX18 = FHE.mul(p.size, FHE.asEuint256(deltaX18));
-    
+
         // Price move sign (plaintext, uses public prices + side)
         bool priceGain = p.isLong ? (price >= p.entryPrice) : (price <= p.entryPrice);
         if (priceGain) {
@@ -397,15 +398,14 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             lossX18 = encMagX18;
         }
     }
-    
+
     /// @dev Funding buckets (non-negative), X18-scaled: routes magnitude to gain or loss.
-    /// Uses side-specific cumulative index so "loss" is simply (dF >= 0).
     function _encFundingBucketsX18(
         Position storage p
     ) internal returns (euint256 gainX18, euint256 lossX18) {
         int256 dF = (p.isLong ? cumFundingLongX18 : cumFundingShortX18) - p.entryFundingX18;
         euint256 encMagX18 = FHE.mul(p.size, FHE.asEuint256(uint256(dF >= 0 ? dF : -dF)));
-    
+
         bool fundingLoss = (dF >= 0);
         if (fundingLoss) {
             gainX18 = FHE.asEuint256(0);
@@ -415,7 +415,7 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             lossX18 = FHE.asEuint256(0);
         }
     }
-    
+
     /// @dev Build LHS/RHS (X18) for encrypted liquidation compare without negative ciphertexts:
     /// LHS = collateral*1e18 + totalGainsX18
     /// RHS = totalLossesX18 + requiredX18
@@ -426,21 +426,26 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     ) internal returns (euint256 lhsX18, euint256 rhsX18) {
         (euint256 priceGainX18, euint256 priceLossX18) = _encPriceBucketsX18(p, price);
         (euint256 fundGainX18,  euint256 fundLossX18)  = _encFundingBucketsX18(p);
-    
+
         // Aggregate (encrypted, non-negative)
         euint256 gainsX18  = FHE.add(priceGainX18, fundGainX18);
         euint256 lossesX18 = FHE.add(priceLossX18, fundLossX18);
-    
+
         // Operands
         euint256 collX18 = FHE.asEuint256(p.collateral * ONE_X18);
         lhsX18 = FHE.add(collX18, gainsX18);
         rhsX18 = FHE.add(lossesX18, encRequiredX18);
     }
 
-    function _setupSettlement(Position storage p, uint256 settlementPrice) internal {
+    function _setupSettlement(
+        Position storage p,
+        uint256 settlementPrice,
+        CloseCause cause
+    ) internal {
         FHE.decrypt(p.size); // request async size decrypt
         p.status = Status.AwaitingSettlement;
         p.settlementPrice = settlementPrice;
+        p.cause = cause;
         FHE.allowThis(p.size);
     }
 
@@ -490,12 +495,18 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
             emit EncryptedOIUpdated(false, false, positionId);
         }
 
-        // Mark status
-        p.status = payoutGross == 0 && (p.isLong ? price <= p.liquidationPrice : price >= p.liquidationPrice)
-            ? Status.Liquidated
-            : Status.Closed;
+        // Mark final status by cause
+        p.status = (p.cause == CloseCause.Liquidation) ? Status.Liquidated : Status.Closed;
 
-        emit PositionClosed(positionId, p.owner, pnl, uint256(payoutNet < 0 ? int256(0) : payoutNet), p.status, price, fee);
+        emit PositionClosed(
+            positionId,
+            p.owner,
+            pnl,
+            uint256(payoutNet < 0 ? int256(0) : payoutNet),
+            p.status,
+            price,
+            fee
+        );
 
         FHE.allowThis(encLongOI);
         FHE.allowThis(encShortOI);

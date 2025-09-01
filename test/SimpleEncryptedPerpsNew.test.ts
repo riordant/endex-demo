@@ -10,7 +10,6 @@ const ONE_X18 = 10n ** 18n
 
 // CoFHE decrypts async
 function coprocessor(ms = 10_000) {
-  // console.log("awaiting coprocessor..")
   return new Promise((r) => setTimeout(r, ms))
 }
 
@@ -65,8 +64,9 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
 
     const userBalStart = BigInt(await usdc.balanceOf(user.address))
 
+    // NOTE: new signature — no liquidationPrice arg
     await perps.connect(user).openPosition(
-      true, encSize, collateral, 0, 0, 0
+      true, encSize, collateral, 0, 0
     )
 
     let pos = await perps.getPosition(1)
@@ -154,7 +154,8 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
 
-    await perps.connect(user).openPosition(true, encSize, collateral, 0, 0, 0)
+    // NOTE: new signature — no liquidationPrice arg
+    await perps.connect(user).openPosition(true, encSize, collateral, 0, 0)
 
     // Big drop to force liquidation
     await feed.updateAnswer(price(1500n))
@@ -177,7 +178,7 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
     expect([2n, 3n]).to.include(pos.status)
   })
 
-  // NEW: Deep negative price PnL path — ensures no underflow in encrypted PnL buckets
+  // Deep negative price PnL path — ensures no underflow in encrypted PnL buckets
   it('handles deep negative price PnL without underflow', async function () {
     const { perps, perpsAddr, usdc, feed, user, lp } = await loadFixture(deployFixture)
 
@@ -195,7 +196,8 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
 
-    await perps.connect(user).openPosition(true, encSize, collateral, 0, 0, 0)
+    // NOTE: new signature — no liquidationPrice arg
+    await perps.connect(user).openPosition(true, encSize, collateral, 0, 0)
 
     // ~50% drop (2000 -> 1000) would make (ratio - 1) negative if done as a single sub
     await feed.updateAnswer(price(1000n))
@@ -213,9 +215,9 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
     expect([2n, 3n]).to.include(pos.status)
   })
 
-  // NEW: Negative funding rate path — shorts dominate; ensures |skew| path has no underflow
+  // Negative funding rate path — shorts dominate; ensures |skew| path has no underflow
   it('commits negative funding rate when shorts dominate (no underflow on |skew|)', async function () {
-    const { perps, perpsAddr, usdc, feed, user, lp } = await loadFixture(deployFixture)
+    const { perps, perpsAddr, usdc, user, lp } = await loadFixture(deployFixture)
 
     // LP & user setup
     await usdc.mint(lp.address, toUSDC(1_000_000n))
@@ -232,7 +234,8 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
     const [encSize] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
-    await perps.connect(user).openPosition(false, encSize, collateral, 0, 0, 0)
+    // NOTE: new signature — no liquidationPrice arg
+    await perps.connect(user).openPosition(false, encSize, collateral, 0, 0)
 
     // Request → commit funding rate; should be NEGATIVE (flag==0 path)
     const epochBefore = Number(await perps.fundingEpoch?.().catch(() => 0))
