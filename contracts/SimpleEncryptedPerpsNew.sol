@@ -17,6 +17,7 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     // ---------- Parameters ----------
     uint256 public constant MAX_LEVERAGE_X = 5;       // 5x (I = 20%)
     uint256 public constant CLOSE_FEE_BPS   = 10;     // 10 bps close fee
+    uint256 public constant MIN_INIT_LEVERAGE_X = 1;  // require ≥ 1x notional
     uint256 public constant MIN_NOTIONAL_USDC = 10e6; // 10 USDC (6 decimals)
     uint256 public constant BPS_DIVISOR     = 10_000;
 
@@ -201,14 +202,14 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     // TRADING API
     // ===============================
 
-    // Add near other constants
-    
     /**
-     * @notice Opens a position. 
-       @dev The requested encrypted `size_` is PRIVATELY CLAMPED
-     *      into [MIN_NOTIONAL_USDC, collateral * MAX_LEVERAGE_X]. If `size_` is below
-     *      the minimum (including zero), the effective size is set to MIN_NOTIONAL_USDC.
-     *      Frontends should enforce min-size to avoid surprises for users interacting
+     * @notice Opens a position.
+     * @dev The requested encrypted `size_` is PRIVATELY CLAMPED into
+     *      [ max(MIN_NOTIONAL_USDC, collateral * MIN_INIT_LEVERAGE_X),
+     *        collateral * MAX_LEVERAGE_X ].
+     *      If `size_` is below the minimum (including zero), the effective
+     *      size is raised to the lower bound. Frontends should enforce
+     *      min-size to avoid surprises for advanced users interacting
      *      directly with the contract.
      */
     function openPosition(
@@ -220,21 +221,14 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
     ) external override {
         // Accrue funding before opening
         pokeFunding();
-
+    
         // Get entry price
         (, int256 price,,,) = ethUsdFeed.latestRoundData();
         require(price > 0, "price");
         require(collateral > 0, "collateral=0");
     
-        // Clamp encrypted requested size to [MIN_NOTIONAL_USDC, collateral * MAX_LEVERAGE_X]
-        euint256 _size    = FHE.asEuint256(size_);
-        euint256 minEnc   = FHE.asEuint256(MIN_NOTIONAL_USDC);
-        euint256 maxEnc   = FHE.asEuint256(collateral * MAX_LEVERAGE_X);
-    
-        // size1 = max(_size, MIN_NOTIONAL_USDC)
-        euint256 size1    = FHE.select(FHE.lt(_size, minEnc), minEnc, _size);
-        // size  = min(size1, collateral * MAX_LEVERAGE_X)
-        euint256 size     = FHE.select(FHE.gt(size1, maxEnc), maxEnc, size1);
+        // Homomorphic clamp (min notional + min leverage, then max leverage)
+        euint256 size = _clampEncryptedSize(size_, collateral);
     
         // Pull collateral
         usdc.safeTransferFrom(msg.sender, address(this), collateral);
@@ -389,6 +383,29 @@ contract SimpleEncryptedPerpsNew is IEncryptedPerpsNew {
         (, int256 price,, ,) = ethUsdFeed.latestRoundData();
         require(price > 0, "price");
         return uint256(price);
+    }
+
+
+    /// @dev Homomorphically clamp requested encrypted size into:
+    ///      [ max(MIN_NOTIONAL_USDC, collateral * MIN_INIT_LEVERAGE_X),
+    ///        collateral * MAX_LEVERAGE_X ]
+    /// NOTE: Uses FHE ops; must NOT be view.
+    function _clampEncryptedSize(
+        InEuint256 calldata size_,
+        uint256 collateral
+    ) internal returns (euint256) {
+        euint256 req   = FHE.asEuint256(size_);
+        euint256 minA  = FHE.asEuint256(MIN_NOTIONAL_USDC);
+        euint256 minB  = FHE.asEuint256(collateral * MIN_INIT_LEVERAGE_X);
+        euint256 minEnc = FHE.select(FHE.gt(minA, minB), minA, minB); // max(minA, minB)
+    
+        euint256 maxEnc = FHE.asEuint256(collateral * MAX_LEVERAGE_X);
+    
+        // size1 = max(req, minEnc)
+        euint256 size1  = FHE.select(FHE.lt(req, minEnc), minEnc, req);
+        // size  = min(size1, maxEnc)
+        euint256 size   = FHE.select(FHE.gt(size1, maxEnc), maxEnc, size1);
+        return size;
     }
 
     /// @dev Price PnL buckets (non-negative), X18-scaled: routes magnitude to gain or loss.

@@ -260,7 +260,7 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
     expect(afterShort > beforeShort).to.be.true
   })
 
-  it('clamps encrypted size up to MIN_NOTIONAL_USDC when user requests too small (incl. zero)', async function () {
+  it('clamps encrypted size by min-leverage floor and max-leverage cap', async function () {
     const { perps, perpsAddr, usdc, user, lp } = await loadFixture(deployFixture)
   
     // LP funds
@@ -269,30 +269,46 @@ describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation
     await perps.connect(lp).lpDeposit(toUSDC(1_000_000n))
   
     // User funds
-    await usdc.mint(user.address, toUSDC(50_000n))
+    await usdc.mint(user.address, toUSDC(100_000n))
     await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
   
     // Init CoFHE
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
   
-    // Read contract min constant
-    const minNotional = BigInt(await perps.MIN_NOTIONAL_USDC())
+    const MIN_NOTIONAL_USDC    = BigInt(await perps.MIN_NOTIONAL_USDC())
+    const MIN_INIT_LEVERAGE_X  = BigInt(await perps.MIN_INIT_LEVERAGE_X())
+    const MAX_LEVERAGE_X       = BigInt(await perps.MAX_LEVERAGE_X())
   
-    // Request an extremely small size (e.g., 0 USDC)
-    const requested = 0n
-    const [encTiny] = await hre.cofhe.expectResultSuccess(
-      cofhejs.encrypt([Encryptable.uint256(requested)])
-    )
+    // Case A: requested size = 0 ⇒ clamp up to max(MIN_NOTIONAL_USDC, collateral * MIN_INIT_LEVERAGE_X)
+    {
+      const collateralA = toUSDC(100n) // 100 USDC
+      const [encZero] = await hre.cofhe.expectResultSuccess(
+        cofhejs.encrypt([Encryptable.uint256(0n)])
+      )
   
-    const collateral = toUSDC(1_000n)
+      await perps.connect(user).openPosition(true, encZero, collateralA, 0, 0)
+      const posA = await perps.getPosition(1)
+      const unsealedA = await cofhejs.unseal(posA.size, FheTypes.Uint256)
   
-    // Open long with tiny requested size → should be clamped up to MIN_NOTIONAL_USDC
-    await perps.connect(user).openPosition(true, encTiny, collateral, 0, 0)
+      const floorByLeverage = (collateralA * MIN_INIT_LEVERAGE_X) // decimals align (both 1e6)
+      const expectedMin = floorByLeverage > MIN_NOTIONAL_USDC ? floorByLeverage : MIN_NOTIONAL_USDC
+      await hre.cofhe.expectResultValue(unsealedA, expectedMin)
+    }
   
-    const pos = await perps.getPosition(1)
+    // Case B: requested size > max leverage ⇒ clamp down to collateral * MAX_LEVERAGE_X
+    {
+      const collateralB = toUSDC(1_000n) // 1,000 USDC
+      const requestedB  = collateralB * (MAX_LEVERAGE_X + 3n) // way above max
+      const [encHuge] = await hre.cofhe.expectResultSuccess(
+        cofhejs.encrypt([Encryptable.uint256(requestedB)])
+      )
   
-    // Unseal the encrypted size to verify clamp
-    const unsealed = await cofhejs.unseal(pos.size, FheTypes.Uint256)
-    await hre.cofhe.expectResultValue(unsealed, minNotional)
+      await perps.connect(user).openPosition(false, encHuge, collateralB, 0, 0)
+      const posB = await perps.getPosition(2)
+      const unsealedB = await cofhejs.unseal(posB.size, FheTypes.Uint256)
+  
+      const expectedMax = collateralB * MAX_LEVERAGE_X
+      await hre.cofhe.expectResultValue(unsealedB, expectedMax)
+    }
   })
 })
