@@ -1,7 +1,7 @@
 // test/SimpleEncryptedPerpsNew.async-funding-and-liquidation.ts
 import { loadFixture, time } from '@nomicfoundation/hardhat-toolbox/network-helpers'
 import hre from 'hardhat'
-import { cofhejs, Encryptable, FheTypes } from 'cofhejs/node'
+import { cofhejs, Encryptable } from 'cofhejs/node'
 import { expect } from 'chai'
 
 function toUSDC(n: bigint) { return n * 10n ** 6n }    // 6 decimals
@@ -10,13 +10,13 @@ const ONE_X18 = 10n ** 18n
 
 // CoFHE decrypts async
 function coprocessor(ms = 10_000) {
-  console.log("awaiting coprocessor..")
+  // console.log("awaiting coprocessor..")
   return new Promise((r) => setTimeout(r, ms))
 }
 
-describe('SimpleEncryptedPerpsNew — async funding + encrypted liquidation', function () {
+describe.only('SimpleEncryptedPerpsNew — async funding + encrypted liquidation', function () {
   async function deployFixture() {
-    const [deployer, user, lp, keeper] = await hre.ethers.getSigners()
+    const [deployer, user, lp, keeper, other] = await hre.ethers.getSigners()
 
     // Mock USDC
     const USDC = await hre.ethers.getContractFactory('MintableToken')
@@ -33,7 +33,7 @@ describe('SimpleEncryptedPerpsNew — async funding + encrypted liquidation', fu
     const perps = await Perps.deploy(usdcAddr, feedAddr)
     const perpsAddr = await perps.getAddress()
 
-    return { perps, perpsAddr, usdc, feed, deployer, user, lp, keeper }
+    return { perps, perpsAddr, usdc, feed, deployer, user, lp, keeper, other }
   }
 
   beforeEach(function () {
@@ -41,7 +41,7 @@ describe('SimpleEncryptedPerpsNew — async funding + encrypted liquidation', fu
     hre.cofhe.mocks.enableLogs()
   })
 
-  it.only('accrues funding via async request/commit and charges it only at settlement', async function () {
+  it('accrues funding via async request/commit and charges it only at settlement', async function () {
     const { perps, perpsAddr, usdc, feed, user, lp } = await loadFixture(deployFixture)
 
     // LP capital
@@ -74,7 +74,7 @@ describe('SimpleEncryptedPerpsNew — async funding + encrypted liquidation', fu
     expect(pos.entryPrice).to.equal(price(2000n))
 
     // === Async funding rate: request (snapshots skew, starts decrypts) ===
-    const epochBefore = Number(await perps.fundingEpoch?.().catch(() => 0)) // supports both old/new compilers
+    const epochBefore = Number(await perps.fundingEpoch?.().catch(() => 0))
     await perps.requestFundingRateFromSkew()
     const epoch = Number(await perps.fundingEpoch?.().catch(() => epochBefore + 1))
     expect(await perps.fundingPending()).to.equal(true)
@@ -85,10 +85,6 @@ describe('SimpleEncryptedPerpsNew — async funding + encrypted liquidation', fu
     // === Commit with epoch ===
     await perps.commitFundingRate(epoch)
     expect(await perps.fundingPending()).to.equal(false)
-
-    // Optional: read rate (may be small/zero depending on params)
-    const rateX18 = BigInt(await perps.fundingRatePerSecX18())
-    // console.log('rateX18/sec =', rateX18.toString())
 
     // Advance time and accrue with current rate
     const dt = 24 * 3600 // 1 day
@@ -104,7 +100,7 @@ describe('SimpleEncryptedPerpsNew — async funding + encrypted liquidation', fu
     const userBalPreClose = BigInt(await usdc.balanceOf(user.address))
     expect(userBalPreClose).to.equal(userBalStart - collateral)
 
-    // Move price up +5% to generate PnL; funding should reduce payout
+    // Move price up +5% to generate PnL; funding should reduce or increase payout depending on sign
     await feed.updateAnswer(price(2100n))
 
     // Close → AwaitingSettlement (requests size decrypt)
@@ -179,5 +175,85 @@ describe('SimpleEncryptedPerpsNew — async funding + encrypted liquidation', fu
     await perps.settlePositions([1])
     pos = await perps.getPosition(1)
     expect([2n, 3n]).to.include(pos.status)
+  })
+
+  // NEW: Deep negative price PnL path — ensures no underflow in encrypted PnL buckets
+  it('handles deep negative price PnL without underflow', async function () {
+    const { perps, perpsAddr, usdc, feed, user, lp } = await loadFixture(deployFixture)
+
+    await usdc.mint(lp.address, toUSDC(1_000_000n))
+    await usdc.connect(lp).approve(perpsAddr, hre.ethers.MaxUint256)
+    await perps.connect(lp).lpDeposit(toUSDC(1_000_000n))
+
+    await usdc.mint(user.address, toUSDC(30_000n))
+    await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
+    await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
+
+    const collateral = toUSDC(5_000n)
+    const notional  = toUSDC(20_000n)
+    const [encSize] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.uint256(notional)])
+    )
+
+    await perps.connect(user).openPosition(true, encSize, collateral, 0, 0, 0)
+
+    // ~50% drop (2000 -> 1000) would make (ratio - 1) negative if done as a single sub
+    await feed.updateAnswer(price(1000n))
+
+    await perps.requestLiqChecks([1])
+    await coprocessor()
+    await perps.finalizeLiqChecks([1])
+
+    let pos = await perps.getPosition(1)
+    expect(pos.status).to.equal(1) // AwaitingSettlement — compare succeeded, no underflow
+
+    await coprocessor()
+    await perps.settlePositions([1])
+    pos = await perps.getPosition(1)
+    expect([2n, 3n]).to.include(pos.status)
+  })
+
+  // NEW: Negative funding rate path — shorts dominate; ensures |skew| path has no underflow
+  it('commits negative funding rate when shorts dominate (no underflow on |skew|)', async function () {
+    const { perps, perpsAddr, usdc, feed, user, lp } = await loadFixture(deployFixture)
+
+    // LP & user setup
+    await usdc.mint(lp.address, toUSDC(1_000_000n))
+    await usdc.connect(lp).approve(perpsAddr, hre.ethers.MaxUint256)
+    await perps.connect(lp).lpDeposit(toUSDC(1_000_000n))
+
+    await usdc.mint(user.address, toUSDC(50_000n))
+    await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
+    await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
+
+    // Open a SHORT only so that encShortOI > encLongOI at request time
+    const collateral = toUSDC(10_000n)
+    const notional  = toUSDC(40_000n) // large short to dominate skew
+    const [encSize] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.uint256(notional)])
+    )
+    await perps.connect(user).openPosition(false, encSize, collateral, 0, 0, 0)
+
+    // Request → commit funding rate; should be NEGATIVE (flag==0 path)
+    const epochBefore = Number(await perps.fundingEpoch?.().catch(() => 0))
+    await perps.requestFundingRateFromSkew()
+    const epoch = Number(await perps.fundingEpoch?.().catch(() => epochBefore + 1))
+    await coprocessor()
+    await perps.commitFundingRate(epoch)
+
+    const rateX18 = BigInt(await perps.fundingRatePerSecX18())
+    expect(rateX18 < 0n).to.be.true // negative funding ⇒ no underflow, correct sign
+
+    // Advance time and accrue to ensure indices move in the expected directions
+    await time.increase(6 * 3600) // 6 hours
+    const beforeLong = BigInt(await perps.cumFundingLongX18())
+    const beforeShort = BigInt(await perps.cumFundingShortX18())
+    await perps.pokeFunding()
+    const afterLong = BigInt(await perps.cumFundingLongX18())
+    const afterShort = BigInt(await perps.cumFundingShortX18())
+
+    // With negative rate: cumFundingLong decreases, cumFundingShort increases
+    expect(afterLong < beforeLong).to.be.true
+    expect(afterShort > beforeShort).to.be.true
   })
 })
