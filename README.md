@@ -1,58 +1,448 @@
-# Fhenix CoFHE Hardhat Starter
+# Endex (Demo)
 
-This project is a starter repository for developing FHE (Fully Homomorphic Encryption) smart contracts on the Fhenix network using CoFHE (Confidential Computing Framework for Homomorphic Encryption).
+> A privacy-preserving perpetuals engine for a single ETH market, built on **CoFHE** (Fhenix’s fully homomorphic coprocessor). Position **size** remains encrypted end-to-end and is revealed only at settlement. Funding accrues continuously via a cumulative index and is **paid only at close** to avoid size leakage. Liquidations use an **encrypted equity check**.
+
+---
+
+## Table of contents
+
+- [High-level architecture](#high-level-architecture)
+- [Data model & units](#data-model--units)
+- [Trade lifecycle](#trade-lifecycle)
+- [Funding design](#funding-design)
+  - [Rationale & comparisons (GMX, dYdX)](#rationale--comparisons-gmx-dydx)
+  - [Market indices & accrual](#market-indices--accrual)
+  - [Encrypted OI → plaintext rate (async)](#encrypted-oi--plaintext-rate-async)
+  - [Per-position funding at close](#per-position-funding-at-close)
+  - [Caveats](#caveats)
+- [Encrypted liquidation checks](#encrypted-liquidation-checks)
+- [PnL and settlement math](#pnl-and-settlement-math)
+- [CoFHE integration](#cofhe-integration)
+  - [Why this design suits FHE](#why-this-design-suits-fhe)
+  - [Async request/commit](#async-requestcommit)
+- [Protocol parameters](#protocol-parameters)
+- [Security & privacy considerations](#security--privacy-considerations)
+- [Future work](#future-work)
+- [References](#references)
+
+---
+
+## High-level architecture
+
+```mermaid
+flowchart LR
+  U[User / Keeper] -->|open/close| R[Perps Contract]
+  R -->|oracle| O[Chainlink ETH/USD]
+  R -->|USDC| P[Pool]
+
+  subgraph Funding
+    R -->|encLongOI| EN[Encrypted OI]
+    EN -->|encShortOI| R
+    R -->|request decrypt| TN[CoFHE Decryption Network]
+  end
+
+  subgraph Settlement
+    R -->|decrypt size| TN
+  end
+
+  U -->|requestLiqChecks / finalize| R
+```
+
+- **Single market (ETH-USD)**
+- **USDC collateral** (6 decimals); **Chainlink** price (8 decimals)
+- **LP pool** is the contract’s USDC balance (fees accrue to LPs)
+- **Encrypted state**: position `size`, aggregate long/short OI, and liquidation trigger flag
+- **Reveal policy**: size is revealed **only** at settlement
+
+---
+
+## Data model & units
+
+- **Prices** \(P, E\): 8 decimals  
+- **Notional size** \(S\): 6 decimals (**encrypted** `euint256`)  
+- **Funding indices & rate**: X18 fixed-point  
+- **Equity comparison**: computed in X18 for precision
+
+**Market storage**
+- `fundingRatePerSecX18` (signed X18)
+- `cumFundingLongX18`, `cumFundingShortX18` (signed X18)
+- `encLongOI`, `encShortOI` (encrypted sums of notional)
+- `lastFundingUpdate`
+
+**Position storage**
+- `size` (encrypted 1e6)
+- `collateral` (USDC 1e6)
+- `entryPrice` (1e8)
+- `entryFundingX18` (snapshot at open)
+- `status` (Open → AwaitingSettlement → Closed/Liquidated)
+
+---
+
+## Trade lifecycle
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant C as Contract
+  participant O as Chainlink
+  participant TN as CoFHE Network
+
+  U->>C: openPosition(isLong, encSize, collateral, TP/SL)
+  C->>C: pokeFunding()
+  Note right of C: snapshot entryFundingX18
+  C->>O: read mark price
+  C->>C: store Position(size=enc,...)
+  Note right of C: update encLongOI/encShortOI
+
+  rect rgb(245,245,255)
+  Note over C,TN: Funding rate update (async)
+  U->>C: requestFundingRateFromSkew()
+  C->>TN: decrypt(encNumerator), decrypt(signFlag)
+  U->>C: commitFundingRate(epoch)
+  C->>C: pokeFunding()
+  Note right of C: set fundingRatePerSecX18
+  end
+
+  rect rgb(245,255,245)
+  Note over C,TN: Encrypted liquidation
+  U->>C: requestLiqChecks([id])
+  C->>TN: decrypt(encLiqFlag)
+  U->>C: finalizeLiqChecks([id])
+  alt flag == 1
+    C->>C: set state → AwaitingSettlement
+  else
+    C->>C: continue
+  end
+  end
+
+  U->>C: closePosition(id)
+  C->>TN: decrypt(position.size)
+  U->>C: settlePositions([id])
+  C->>C: compute PnL, funding
+  C->>C: transfer payout
+```
+
+---
+
+## Funding design
+
+### Rationale & comparisons (GMX, dYdX)
+
+Perp engines typically **accrue funding continuously** with a **cumulative index** and realize it on **position update or close**.  
+- **dYdX**: rate updates hourly; accrual is second-by-second; realized on portfolio change/close.  
+- **GMX**: side-dependent funding that adapts to long/short skew; realized when the position changes.
+
+**Our twist**: funding is **accrued continuously** but **paid only at settlement**. This avoids any mid-life cashflow that would scale with **size**, thereby preserving size privacy while maintaining the correct economics.
+
+### Market indices & accrual
+
+On `pokeFunding()`:
+
+$$
+\begin{aligned}
+\text{cumFundingLongX18} &\mathrel{+}= r \cdot \Delta t,\\
+\text{cumFundingShortX18} &\mathrel{-}= r \cdot \Delta t,
+\end{aligned}
+$$
+
+with $r=\text{fundingRatePerSecX18}$ (signed X18), $\Delta t$ in seconds.
+
+On `openPosition()`:
+
+$$
+\text{entryFundingX18} \gets
+\begin{cases}
+\text{cumFundingLongX18} & \text{if long}\\
+\text{cumFundingShortX18} & \text{if short}
+\end{cases}
+$$
+
+### Encrypted OI → plaintext rate (async)
+
+We compute the funding **rate** from **encrypted skew** without revealing OI totals:
+
+1. **Request (single snapshot):**
+   - Compute **encrypted skew** $\,\text{encSkew} = \text{encLongOI} - \text{encShortOI}\,$.
+   - Compute **encrypted numerator** $\,\text{encNum} = \text{encSkew} \cdot K\,$ (constant `FUNDING_K_X12`).
+   - Compute encrypted **sign flag** $\,\mathbf{1}_{\text{longOI}\ge\text{shortOI}}\,$.
+   - Call `FHE.decrypt(encNum)` and `FHE.decrypt(encFlag)`. Mark `fundingPending`, bump `fundingEpoch`.
+
+2. **Commit (after decrypt ready):**
+   - Read `num` and `flag` via `getDecryptResultSafe(...)`.
+   - Build **signed** numerator: `signedNum = flag==1 ? +num : -num`.
+   - Convert to **per-second X18** rate, **clamp** to bounds, then `pokeFunding()` and set `fundingRatePerSecX18`.
+
+Only the **rate** (a single scalar) is revealed; per-position sizes remain private. This aligns with GMX’s *adaptive funding* concept (rate depends on long/short ratio) while minimizing leakage.
+
+### Per-position funding at close
+
+At settlement (after size decrypt):
+
+$$
+\text{fundingUSDC} \;=\; S \cdot \frac{\Delta F}{1e18}
+\quad\text{where}\quad
+\Delta F \;=\; \Big(\text{cumFundingSideX18}\;-\;\text{entryFundingX18}\Big)
+$$
+
+- $S$ is **decrypted** notional (6d).
+- For longs, `cumFundingSideX18 = cumFundingLongX18`; for shorts, `cumFundingSideX18 = cumFundingShortX18`.
+
+We **do not** transfer funding mid-life. This is economically equivalent to continuous accrual if liquidation checks include funding (see next section).
+
+### Caveats
+
+- **Rate leakage:** Publishing the **rate** leaks the **sign** and rough magnitude of market skew (by design). We accept this minimal leakage to avoid revealing **aggregate OI** or per-position sizes.
+- **Index freshness:** Always invoke `pokeFunding()` before using indices (e.g., on open, request, commit, liquidation requests). Stale timestamps lead to under/over-accrual.
+- **LP NAV:** If you later allow mid-interval LP deposits/withdrawals priced off pool NAV, consider also tracking a pool-level funding receivable/payable to keep LP share pricing fair (out of scope in the current minimal pool).
+
+---
+
+## Encrypted liquidation checks
+
+Liquidations must “see” funding to avoid bad debt. We compute an **encrypted equity** and compare it to **encrypted maintenance**:
+
+- **Encrypted equity (X18)**:
+
+$$
+\text{encEquityX18} = (\text{collateral}\cdot 1e18) + \text{encPnL\\_X18} \pm \text{encFunding\\_X18}
+$$
+
+where
+
+$$
+\text{encPnL\\_X18} =
+\begin{cases}
+S\cdot\big(\tfrac{P}{E}\cdot 1e18 - 1e18\big) & \text{long}\\[2pt]
+S\cdot\big(1e18 - \tfrac{P}{E}\cdot 1e18\big) & \text{short}
+\end{cases}
+$$
+
+and $\,\text{encFunding\\_X18} = S \cdot |\Delta F|$; sign applied outside.
+
+- **Maintenance requirement (X18)**:
+
+$$
+\text{encReq} = S \cdot \text{MAINT\\_MARGIN\\_BPS} \cdot 1e14
+$$
+
+(BPS → X18).
+
+- **Encrypted boolean**: `encEquityX18 < encReq` → encrypt to **0/1 flag**, request decrypt. In a second tx, if `flag==1` we move the position to **AwaitingSettlement** at the stored price. This reveals **only** “liquidate / don’t liquidate,” never the size or thresholds.
+
+---
+
+## PnL and settlement math
+
+At settlement we decrypt `size` and compute:
+
+1. **Price PnL** (USDC, 6d):
+
+$$
+\text{PnL} =
+\begin{cases}
+S\cdot\frac{P - E}{E} & \text{long}\\[6pt]
+S\cdot\frac{E - P}{E} & \text{short}
+\end{cases}
+$$
+
+2. **Funding**:
+
+$$
+\text{FundingUSDC} = S \cdot \frac{\Delta F}{1e18}
+$$
+
+3. **Payout (gross → fee → net)**:
+
+$$
+\text{payoutGross} = \max\big(0,\; \text{collateral} + \text{PnL} - \text{FundingUSDC}\big)
+$$
+
+$$
+\text{payoutNet} = \text{payoutGross} - \text{closeFeeBps}\cdot\text{payoutGross}
+$$
+
+Fee accrues to the pool (LPs).
+
+---
+
+## CoFHE integration
+
+- **Library:** `@fhenixprotocol/cofhe-contracts/FHE.sol`
+- **Encrypted types:** `euint256`, `ebool` used for sizes, OI aggregates, and comparison flags
+- **Ops are stateful:** `FHE.mul`, `FHE.add`, etc. operate on ciphertexts and **change state**; they’re **not** `view`
+- **Access control:** positions call `FHE.allowThis/allowSender` to enable contract/self access to ciphertexts
+- **Async decrypt:** `FHE.decrypt(cipher)` starts a threshold decrypt; later poll with `FHE.getDecryptResultSafe(cipher)` → `(value, ready)`
+
+### Why this design suits FHE
+
+- **No mid-life cashflows:** avoids per-interval payouts that would scale with size (preventing leakage)
+- **Encrypted comparisons:** liquidation uses a one-bit reveal; notional stays hidden
+- **Aggregate OI kept private:** we decrypt **only** a funding **rate**, not OI totals or individual positions
+
+### Async request/commit
+
+```text
+Funding rate:
+  requestFundingRateFromSkew():
+    encSkew = encLongOI - encShortOI
+    encNum  = encSkew * K
+    encFlag = (encLongOI >= encShortOI) ? 1 : 0
+    decrypt(encNum); decrypt(encFlag)
+    fundingPending = true; fundingEpoch++
+
+  commitFundingRate(epoch):
+    require(fundingPending && epoch == fundingEpoch)
+    (num, ready1)  = getDecryptResultSafe(encNum)
+    (flag, ready2) = getDecryptResultSafe(encFlag)
+    require(ready1 && ready2)
+    rate = clamp(sign(flag)*num / 1e6)
+    pokeFunding(); fundingRatePerSecX18 = rate; fundingPending = false
+```
+
+---
+
+## Protocol parameters
+
+- `MAX_LEVERAGE_X = 5`
+- `CLOSE_FEE_BPS = 10` (0.10%)
+- `MAINT_MARGIN_BPS = 100` (1.00%)
+- `FUNDING_K_X12` (encrypted scalar; maps skew → numerator)
+- `MAX_ABS_FUNDING_RATE_PER_SEC_X18` (safety bound)
+- **Scales:** size 1e6, price 1e8, funding X18
+
+> **Note**: constants are placeholders for a prototype. In production, parameterize via governance and add per-market configs.
+
+---
+
+## Security & privacy considerations
+
+- **Privacy surface**
+  - Revealed: **rate** scalar (implies skew sign and rough magnitude), **liq decision bit**, final **payout** at close
+  - Hidden: **per-position size** until settlement, **aggregate OI** (kept encrypted), per-position equity/thresholds
+- **Oracle correctness**: relies on a Chainlink-style oracle; production systems may use robust feeds with anti-wick measures
+- **Async risk**: decryption latency—tests simulate ~10s; the request/commit pattern includes an `epoch` to prevent race/replay
+- **Insolvency check**: settlement requires `payoutNet <= usdcBalance`; future versions may add insurance/reserve
+
+---
+
+---
+
+## Future work
+
+- **Encrypted TP/SL**: mirror liquidation’s encrypted trigger
+- **Cross-margin & multi-asset**: extend beyond isolated ETH
+- **LP share pricing / NAV**: funding receivable/payable buckets for fair mid-interval LP actions
+- **Governance & pausing**: admin controls and graceful handling of decrypt delays
+- **ZK attestations**: proofs of correct encrypted computations (longer-term)
+
+---
+
+## References
+
+- GMX V2 docs & design discussions (funding, liquidation, oracle principles)
+- dYdX docs (hourly funding updates, continuous accrual)
+- Fhenix CoFHE docs (FHE.sol operations, async decrypt network)
+
+---
+
+### Appendix — exact formulas & scales
+
+Let:
+
+- $S$ = position **size** (USDC $1e6$), encrypted during life, decrypted at settlement  
+- $E$ = entry price ($1e8$), $P$ = settlement price ($1e8$)  
+- $F(t)$ = cumulative funding index for the side (X18)  
+- $\Delta F = F(t_{\text{settle}}) - F(t_{\text{open}})$ (X18)  
+- $r$ = fundingRatePerSecX18 (X18), $dt$ in seconds
+
+**Accrual**  
+
+$$
+F_{\text{long}} \mathrel{+}= r\cdot dt,\qquad
+F_{\text{short}} \mathrel{-}= r\cdot dt
+$$
+
+**Price PnL**  
+
+$$
+\text{PnL} =
+\begin{cases}
+S\cdot \dfrac{P - E}{E}, & \text{long}\\[6pt]
+S\cdot \dfrac{E - P}{E}, & \text{short}
+\end{cases}
+$$
+
+**Funding**  
+
+$$
+\text{FundingUSDC} = S \cdot \dfrac{\Delta F}{1e18}
+$$
+
+**Equity (X18) for liquidation**
+
+$$
+\begin{aligned}
+\text{encEquityX18}
+&= \text{collateral}\cdot 1e18 \\
+&\quad {}+ \text{encPnL\\_X18} \\
+&\quad \pm \text{encFunding\\_X18}
+\end{aligned}
+$$
+
+**Maintenance (X18)**  
+
+$$
+\text{encReq} = S \cdot \text{MAINT\\_MARGIN\\_BPS} \cdot 1e14
+$$
+
+**Payout**  
+
+$$
+\text{payoutNet}
+= \max\!\big(0,\ \text{collateral}+\text{PnL}-\text{Funding}\big)
+\cdot \Big(1-\tfrac{\text{closeFeeBps}}{10{,}000}\Big)
+$$
+
+
+
+# Development
 
 ## Prerequisites
 
 - Node.js (v18 or later)
-- pnpm (recommended package manager)
+- bun (recommended package manager)
 
 ## Installation
 
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/fhenixprotocol/cofhe-hardhat-starter.git
+git clone https://github.com/riordant/endex-demo.git
 cd cofhe-hardhat-starter
 ```
 
 2. Install dependencies:
 
 ```bash
-pnpm install
+bun install
 ```
 
 ## Available Scripts
 
 ### Development
 
-- `pnpm compile` - Compile the smart contracts
-- `pnpm clean` - Clean the project artifacts
-- `pnpm test` - Run tests on the local CoFHE network
-- `pnpm test:hardhat` - Run tests on the Hardhat network
-- `pnpm test:localcofhe` - Run tests on the local CoFHE network
+- `bun compile` - Compile the smart contracts
+- `bun clean` - Clean the project artifacts
+- `bun test` - Run tests on the local CoFHE network
+- `bun test:hardhat` - Run tests on the Hardhat network
+- `bun test:localcofhe` - Run tests on the local CoFHE network
 
 ### Local CoFHE Network
 
-- `pnpm localcofhe:start` - Start a local CoFHE network
-- `pnpm localcofhe:stop` - Stop the local CoFHE network
-- `pnpm localcofhe:faucet` - Get test tokens from the faucet
-- `pnpm localcofhe:deploy` - Deploy contracts to the local CoFHE network
-
-### Contract Tasks
-
-- `pnpm task:deploy` - Deploy contracts
-- `pnpm task:addCount` - Add to the counter
-- `pnpm task:getCount` - Get the current count
-- `pnpm task:getFunds` - Get funds from the contract
-
-## Project Structure
-
-- `contracts/` - Smart contract source files
-  - `Counter.sol` - Example FHE counter contract
-  - `Lock.sol` - Example time-locked contract
-- `test/` - Test files
-- `ignition/` - Hardhat Ignition deployment modules
+- `bun localcofhe:start` - Start a local CoFHE network
+- `bun localcofhe:stop` - Stop the local CoFHE network
+- `bun localcofhe:faucet` - Get test tokens from the faucet
+- `bun localcofhe:deploy` - Deploy contracts to the local CoFHE network
 
 ## `cofhejs` and `cofhe-hardhat-plugin`
 
