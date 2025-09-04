@@ -5,6 +5,7 @@ import {IEndex} from "./IEndex.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import "hardhat/console.sol";
 
 interface IAggregatorV3 {
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
@@ -376,12 +377,16 @@ contract Endex is IEndex {
     function finalizeLiqChecks(uint256[] calldata positionIds) external override {
         for (uint256 i = 0; i < positionIds.length; i++) {
             Position storage p = positions[positionIds[i]];
+            console.logBool(p.liqCheckPending);
             if (!p.liqCheckPending || p.status != Status.Open) continue;
 
             (uint256 flag, bool ready) = FHE.getDecryptResultSafe(p.pendingLiqFlagEnc);
             if (!ready) continue;
 
             p.liqCheckPending = false;
+
+            console.log("flag:");
+            console.log(flag);
 
             if (flag == 1) {
                 p.cause = CloseCause.Liquidation;
@@ -520,6 +525,7 @@ contract Endex is IEndex {
     }
 
     function _settle(uint256 positionId) internal {
+        console.log("settling");
         Position storage p = positions[positionId];
         require(p.status == Status.AwaitingSettlement, "not awaiting settlement");
 
@@ -528,10 +534,16 @@ contract Endex is IEndex {
 
         // Gross payout in USDC (6d)
         uint256 payoutGross = eqX18 / ONE_X18;
+        console.log("payoutGross:");
+        console.log(payoutGross);
 
         // Close fee on payout
         uint256 fee = (payoutGross * CLOSE_FEE_BPS) / BPS_DIVISOR;
+        console.log("fee:");
+        console.log(fee);
         uint256 payoutNet = payoutGross > fee ? (payoutGross - fee) : 0;
+        console.log("payoutNet:");
+        console.log(payoutNet);
 
         // Transfer
         if (payoutNet > 0) {

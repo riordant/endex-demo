@@ -1,4 +1,4 @@
-// test/SimpleEncryptedPerpsNew.with-impact.ts
+// test/basic.test.ts
 import { loadFixture, time } from '@nomicfoundation/hardhat-toolbox/network-helpers'
 import hre from 'hardhat'
 import { cofhejs, Encryptable } from 'cofhejs/node'
@@ -45,7 +45,7 @@ describe('Endex — funding, encrypted liquidation & price impact', function () 
     const feedAddr = await feed.getAddress()
 
     // Perps
-    const Perps = await hre.ethers.getContractFactory('SimpleEncryptedPerpsNew')
+    const Perps = await hre.ethers.getContractFactory('Endex')
     const perps = await Perps.deploy(usdcAddr, feedAddr)
     const perpsAddr = await perps.getAddress()
 
