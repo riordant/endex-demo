@@ -5,7 +5,6 @@ import {IEndex} from "./IEndex.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
-import "hardhat/console.sol";
 
 interface IAggregatorV3 {
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
@@ -16,14 +15,14 @@ contract Endex is IEndex {
 
     // -------- Constants --------
     uint256 public constant MAX_LEVERAGE_X = 5;     // 5x
-    uint256 public constant CLOSE_FEE_BPS    = 10;  // 0.1% close fee
-    uint256 public constant BPS_DIVISOR      = 10_000;
+    uint256 public constant CLOSE_FEE_BPS   = 10;   // 0.1% close fee
+    uint256 public constant BPS_DIVISOR     = 10_000;
 
     // Funding / math scales
     uint256  public constant ONE_X18 = 1e18;
     euint256 public immutable ENC_ONE_X18;
     uint256  public constant MAINT_MARGIN_BPS = 100; // 1%
-    uint256  public constant MIN_NOTIONAL_USDC = 10e6; // 10 USDC (6d) — frontends should enforce
+    uint256  public constant MIN_NOTIONAL_USDC = 10e6; // 10 USDC (6d)
 
     // Funding rate cap and linear coefficient (tunable)
     euint256 public immutable FUNDING_K_X12; // scales encrypted skew to rate numerator
@@ -31,11 +30,11 @@ contract Endex is IEndex {
 
     // ===== Price Impact Params (ETH-only tuning) =====
     // Quadratic coefficient (dimensionless, X18). Initial guess; tune on testnet.
-    uint256 public constant IMPACT_GAMMA_X18     = 3e15;        // 0.003
-    uint256 public constant IMPACT_TVL_FACTOR_BPS = 5000;       // 50% of pool balance
-    uint256 public constant IMPACT_MIN_LIQ_USD    = 500_000e6;  // 500k USDC floor (6d)
-    uint256 public constant IMPACT_UTIL_BETA_X18  = 1e18;       // strengthen impact under high |rate|
-    uint256 private constant IMPACT_SCALER        = 1e14;       // see units derivation
+    uint256 public constant IMPACT_GAMMA_X18      = 3e15;        // 0.003
+    uint256 public constant IMPACT_TVL_FACTOR_BPS = 5000;        // 50% of pool balance
+    uint256 public constant IMPACT_MIN_LIQ_USD    = 500_000e6;   // 500k USDC floor (6d)
+    uint256 public constant IMPACT_UTIL_BETA_X18  = 1e18;        // strengthen impact under high |rate|
+    uint256 private constant IMPACT_SCALER        = 1e14;        // see units derivation
 
     // Tokens and oracle
     IERC20 public immutable usdc;          // 6 decimals
@@ -97,9 +96,6 @@ contract Endex is IEndex {
     // ===============================
     // LP FUNCTIONS
     // ===============================
-
-    event LpDeposit(address indexed lp, uint256 amount, uint256 sharesMinted);
-    event LpWithdraw(address indexed lp, uint256 shares, uint256 amountReturned);
 
     function lpDeposit(uint256 amount) external {
         require(amount > 0, "amount=0");
@@ -377,16 +373,12 @@ contract Endex is IEndex {
     function finalizeLiqChecks(uint256[] calldata positionIds) external override {
         for (uint256 i = 0; i < positionIds.length; i++) {
             Position storage p = positions[positionIds[i]];
-            console.logBool(p.liqCheckPending);
             if (!p.liqCheckPending || p.status != Status.Open) continue;
 
             (uint256 flag, bool ready) = FHE.getDecryptResultSafe(p.pendingLiqFlagEnc);
             if (!ready) continue;
 
             p.liqCheckPending = false;
-
-            console.log("flag:");
-            console.log(flag);
 
             if (flag == 1) {
                 p.cause = CloseCause.Liquidation;
@@ -479,108 +471,15 @@ contract Endex is IEndex {
         euint256 lossesX18 = FHE.add(priceLossX18, fundLossX18);
         lossesX18          = FHE.add(lossesX18, p.encImpactEntryLossX18);
 
+        // NOTE: No exit impact here — liquidation trigger should not assume fill impact.
+
         // Operands
         euint256 collX18 = FHE.asEuint256(p.collateral * ONE_X18);
         lhsX18 = FHE.add(collX18, gainsX18);
         rhsX18 = FHE.add(lossesX18, encRequiredX18);
     }
 
-    /// @dev Encrypted equity (X18), clamped to zero (no maintenance term here).
-    /// equityX18 = max(0, collateral*1e18 + gainsX18 - lossesX18)
-    function _encEquityOnlyX18(
-        Position storage p,
-        uint256 price
-    ) internal returns (euint256) {
-        (euint256 priceGainX18, euint256 priceLossX18) = _encPriceBucketsX18(p, price);
-        (euint256 fundGainX18,  euint256 fundLossX18)  = _encFundingBucketsX18(p);
-
-        // include entry price impact
-        euint256 gainsX18  = FHE.add(priceGainX18, fundGainX18);
-        gainsX18           = FHE.add(gainsX18,  p.encImpactEntryGainX18);
-
-        euint256 lossesX18 = FHE.add(priceLossX18, fundLossX18);
-        lossesX18          = FHE.add(lossesX18, p.encImpactEntryLossX18);
-
-        euint256 collX18   = FHE.asEuint256(p.collateral * ONE_X18);
-        euint256 lhs       = FHE.add(collX18, gainsX18);
-
-        // equity = max(0, lhs - losses)
-        ebool insolvent    = FHE.lt(lhs, lossesX18);
-        euint256 diff      = FHE.sub(FHE.select(insolvent, lossesX18, lhs),
-                                     FHE.select(insolvent, lhs,       lossesX18));
-        // if insolvent => 0; else => diff
-        return FHE.select(insolvent, FHE.asEuint256(0), diff);
-    }
-
-    function _setupSettlement(Position storage p, uint256 settlementPrice) internal {
-        // Build encrypted equity at this price (X18), then request decrypt
-        euint256 encEqX18 = _encEquityOnlyX18(p, settlementPrice);
-        p.pendingEquityX18 = encEqX18;
-        FHE.decrypt(p.pendingEquityX18);
-
-        p.status = Status.AwaitingSettlement;
-        p.settlementPrice = settlementPrice;
-
-        FHE.allowThis(p.pendingEquityX18);
-    }
-
-    function _settle(uint256 positionId) internal {
-        console.log("settling");
-        Position storage p = positions[positionId];
-        require(p.status == Status.AwaitingSettlement, "not awaiting settlement");
-
-        (uint256 eqX18, bool ready) = FHE.getDecryptResultSafe(p.pendingEquityX18);
-        require(ready, "equity not ready");
-
-        // Gross payout in USDC (6d)
-        uint256 payoutGross = eqX18 / ONE_X18;
-        console.log("payoutGross:");
-        console.log(payoutGross);
-
-        // Close fee on payout
-        uint256 fee = (payoutGross * CLOSE_FEE_BPS) / BPS_DIVISOR;
-        console.log("fee:");
-        console.log(fee);
-        uint256 payoutNet = payoutGross > fee ? (payoutGross - fee) : 0;
-        console.log("payoutNet:");
-        console.log(payoutNet);
-
-        // Transfer
-        if (payoutNet > 0) {
-            require(payoutNet <= usdcBalance, "pool insolvent");
-            usdcBalance -= payoutNet;
-            usdc.safeTransfer(p.owner, payoutNet);
-        }
-
-        // Update encrypted OI aggregates (remove size)
-        if (p.isLong) {
-            encLongOI = FHE.sub(encLongOI, p.size);
-            emit EncryptedOIUpdated(true, false, positionId);
-        } else {
-            encShortOI = FHE.sub(encShortOI, p.size);
-            emit EncryptedOIUpdated(false, false, positionId);
-        }
-
-        // Mark final status by cause
-        p.status = (p.cause == CloseCause.Liquidation) ? Status.Liquidated : Status.Closed;
-
-        emit PositionClosed(
-            positionId,
-            p.owner,
-            int256(0), // pnl intentionally not emitted under encrypted-equity settlement
-            payoutNet,
-            p.status,
-            p.settlementPrice,
-            fee
-        );
-
-        FHE.allowThis(encLongOI);
-        FHE.allowThis(encShortOI);
-    }
-
-    // ===============================
-    // Price Impact helpers
-    // ===============================
+    /// ===== Price Impact helpers =====
 
     /// @dev Compute L_eff (USD, 6d) from TVL and a public utilization proxy (|rate|).
     function _impactLiquidityScaleUSD() internal view returns (uint256 L) {
@@ -610,11 +509,16 @@ contract Endex is IEndex {
     }
 
     /// @dev Return |skew| (encrypted) and encrypted boolean "skew >= 0".
-    function _encAbsSkewAndFlag() internal returns (euint256 encAbs, ebool skewGEZero) {
-        skewGEZero = FHE.gte(encLongOI, encShortOI);
+    function _encSkew() internal returns (eint256 memory result) {
+        ebool skewGEZero = FHE.gte(encLongOI, encShortOI);
         euint256 encMax = FHE.select(skewGEZero, encLongOI, encShortOI);
         euint256 encMin = FHE.select(skewGEZero, encShortOI, encLongOI);
-        encAbs = FHE.sub(encMax, encMin);
+        euint256 encAbs = FHE.sub(encMax, encMin);
+
+        result = eint256({
+            sign: skewGEZero,
+            val: encAbs
+        });
     }
 
     /// @dev Encode K as encrypted euint256; returns (K, isZero).
@@ -625,50 +529,50 @@ contract Endex is IEndex {
         }
         return (FHE.asEuint256(kPlain), false);
     }
-    
+
     /// @dev Build delta parts for entry impact using non-negative buckets.
     /// deltaPos => contributes to trader loss; deltaNeg => contributes to trader gain.
     function _encDeltaPartsForImpact(
         bool isLong,
-        ebool skewGEZero,
         euint256 encSize,
-        euint256 encAbsSkew
+        eint256 memory encSkew
     ) internal returns (euint256 deltaPos, euint256 deltaNeg) {
         // Common terms: size^2 and 2*|skew|*size
         euint256 size2    = FHE.mul(encSize, encSize);
-        euint256 twoAbs   = FHE.mul(encAbsSkew, FHE.asEuint256(2));
+        euint256 twoAbs   = FHE.mul(encSkew.val, FHE.asEuint256(2));
         euint256 twoSsize = FHE.mul(twoAbs, encSize);
+        ebool sndSign     = FHE.gte(size2, twoSsize);
     
-        // Always non-negative part of (s±)^2 difference
-        euint256 alwaysPos = FHE.add(size2, twoSsize);
+        // fst: x^2 + 2|s|x
+        eint256 memory fst = eint256({
+            sign: FHE.asEbool(true),
+            val: FHE.add(size2, twoSsize)
+        });
     
-        // Magnitude of (size^2 - 2|s|size)
-        ebool size2Ge = FHE.gte(size2, twoSsize);
-        euint256 diff = FHE.sub(
-            FHE.select(size2Ge, size2,    twoSsize),
-            FHE.select(size2Ge, twoSsize, size2)
-        );
+        // snd: x^2 - 2|s|x
+        eint256 memory snd = eint256({
+            sign: sndSign,
+            val: FHE.sub(
+                FHE.select(sndSign, size2,    twoSsize),
+                FHE.select(sndSign, twoSsize, size2)
+            )
+        });
     
+        euint256 pos = FHE.select(snd.sign, snd.val, FHE.asEuint256(0));
+        euint256 neg = FHE.select(snd.sign, FHE.asEuint256(0), snd.val);
         // Route to positive/negative buckets based on side & skew sign
         if (isLong) {
-            // long: skew>=0 => alwaysPos; skew<0 => +/- diff
-            euint256 posIfGE = alwaysPos;
-            euint256 posIfLT = FHE.select(size2Ge, diff, FHE.asEuint256(0));
-            euint256 negIfLT = FHE.select(size2Ge, FHE.asEuint256(0), diff);
-            deltaPos = FHE.select(skewGEZero, posIfGE, posIfLT);
-            deltaNeg = FHE.select(skewGEZero, FHE.asEuint256(0), negIfLT);
+            // long: skew>=0 => fst.val; skew<0 => +/- snd.val
+            deltaPos = FHE.select(encSkew.sign, fst.val, pos);
+            deltaNeg = FHE.select(encSkew.sign, FHE.asEuint256(0), neg);
         } else {
-            // short: skew<0 => alwaysPos; skew>=0 => +/- diff
-            euint256 posIfLT = alwaysPos;
-            euint256 posIfGE = FHE.select(size2Ge, diff, FHE.asEuint256(0));
-            euint256 negIfGE = FHE.select(size2Ge, FHE.asEuint256(0), diff);
-            deltaPos = FHE.select(skewGEZero, posIfGE, posIfLT);
-            deltaNeg = FHE.select(skewGEZero, negIfGE, FHE.asEuint256(0));
+            // short: skew<0 => fst.val; skew>=0 => +/- snd.val
+            deltaPos = FHE.select(encSkew.sign, pos, fst.val);
+            deltaNeg = FHE.select(encSkew.sign, neg, FHE.asEuint256(0));
         }
     }
-    
+
     /// @dev Compute entry impact buckets for this trade BEFORE OI is updated.
-    /// Adds only entry impact (exit impact can be added similarly later).
     function _encImpactEntryBucketsAtOpenX18(
         bool isLong,
         euint256 encSize,
@@ -679,16 +583,128 @@ contract Endex is IEndex {
             // no impact when K == 0
             return (FHE.asEuint256(0), FHE.asEuint256(0));
         }
-    
-        // |skew| and skew sign
-        (euint256 encAbsSkew, ebool skewGEZero) = _encAbsSkewAndFlag();
-    
+
+        // |skew| and sign
+        eint256 memory encSkew = _encSkew();
+
         // Split into non-negative buckets
         (euint256 deltaPos, euint256 deltaNeg) =
-            _encDeltaPartsForImpact(isLong, skewGEZero, encSize, encAbsSkew);
-    
-        // impactX18 = delta * K; positive => trader loss, negative => trader gain
+            _encDeltaPartsForImpact(isLong, encSize, encSkew);
+
+        // impactX18 = delta * K; positive => taker loss, negative => taker gain
         lossX18 = FHE.mul(deltaPos, K);
         gainX18 = FHE.mul(deltaNeg, K);
+    }
+
+    /// @dev (NEW) Generic helper for computing impact buckets of an arbitrary trade (used for EXIT).
+    function _encImpactBucketsForTradeX18(
+        bool isLong,
+        euint256 encSize,
+        uint256 oraclePrice
+    ) internal returns (euint256 gainX18, euint256 lossX18) {
+        (euint256 K, bool zeroK) = _impactKEnc(oraclePrice);
+        if (zeroK) {
+            return (FHE.asEuint256(0), FHE.asEuint256(0));
+        }
+        eint256 memory encSkew = _encSkew();
+        (euint256 deltaPos, euint256 deltaNeg) =
+            _encDeltaPartsForImpact(isLong, encSize, encSkew);
+
+        lossX18 = FHE.mul(deltaPos, K);
+        gainX18 = FHE.mul(deltaNeg, K);
+    }
+
+    /// @dev Encrypted equity (X18), clamped to zero (no maintenance term here).
+    /// equityX18 = max(0, collateral*1e18 + gainsX18 - lossesX18)
+    /// Includes price, funding, entry impact, and (NEW) exit impact evaluated at `price`.
+    function _encEquityOnlyX18(
+        Position storage p,
+        uint256 price
+    ) internal returns (euint256) {
+        (euint256 priceGainX18, euint256 priceLossX18) = _encPriceBucketsX18(p, price);
+        (euint256 fundGainX18,  euint256 fundLossX18)  = _encFundingBucketsX18(p);
+
+        // include entry impact
+        euint256 gainsX18  = FHE.add(priceGainX18, fundGainX18);
+        gainsX18           = FHE.add(gainsX18,  p.encImpactEntryGainX18);
+
+        euint256 lossesX18 = FHE.add(priceLossX18, fundLossX18);
+        lossesX18          = FHE.add(lossesX18, p.encImpactEntryLossX18);
+
+        // (NEW) exit impact: opposite trade direction, evaluated at settlement `price`
+        (euint256 exitGainX18, euint256 exitLossX18) =
+            _encImpactBucketsForTradeX18(!p.isLong, p.size, price);
+
+        gainsX18  = FHE.add(gainsX18,  exitGainX18);
+        lossesX18 = FHE.add(lossesX18, exitLossX18);
+
+        euint256 collX18   = FHE.asEuint256(p.collateral * ONE_X18);
+        euint256 lhs       = FHE.add(collX18, gainsX18);
+
+        // equity = max(0, lhs - losses)
+        ebool insolvent    = FHE.lt(lhs, lossesX18);
+        euint256 diff      = FHE.sub(FHE.select(insolvent, lossesX18, lhs),
+                                     FHE.select(insolvent, lhs,       lossesX18));
+        // if insolvent => 0; else => diff
+        return FHE.select(insolvent, FHE.asEuint256(0), diff);
+    }
+
+    function _setupSettlement(Position storage p, uint256 settlementPrice) internal {
+        // Build encrypted equity at this price (X18), then request decrypt
+        euint256 encEqX18 = _encEquityOnlyX18(p, settlementPrice);
+        p.pendingEquityX18 = encEqX18;
+        FHE.decrypt(p.pendingEquityX18);
+
+        p.status = Status.AwaitingSettlement;
+        p.settlementPrice = settlementPrice;
+
+        FHE.allowThis(p.pendingEquityX18);
+    }
+
+    function _settle(uint256 positionId) internal {
+        Position storage p = positions[positionId];
+        require(p.status == Status.AwaitingSettlement, "not awaiting settlement");
+
+        (uint256 eqX18, bool ready) = FHE.getDecryptResultSafe(p.pendingEquityX18);
+        require(ready, "equity not ready");
+
+        // Gross payout in USDC (6d)
+        uint256 payoutGross = eqX18 / ONE_X18;
+
+        // Close fee on payout
+        uint256 fee = (payoutGross * CLOSE_FEE_BPS) / BPS_DIVISOR;
+        uint256 payoutNet = payoutGross > fee ? (payoutGross - fee) : 0;
+
+        // Transfer
+        if (payoutNet > 0) {
+            require(payoutNet <= usdcBalance, "pool insolvent");
+            usdcBalance -= payoutNet;
+            usdc.safeTransfer(p.owner, payoutNet);
+        }
+
+        // Update encrypted OI aggregates (remove size) AFTER exit impact was computed
+        if (p.isLong) {
+            encLongOI = FHE.sub(encLongOI, p.size);
+            emit EncryptedOIUpdated(true, false, positionId);
+        } else {
+            encShortOI = FHE.sub(encShortOI, p.size);
+            emit EncryptedOIUpdated(false, false, positionId);
+        }
+
+        // Mark final status by cause
+        p.status = (p.cause == CloseCause.Liquidation) ? Status.Liquidated : Status.Closed;
+
+        emit PositionClosed(
+            positionId,
+            p.owner,
+            int256(0), // pnl intentionally not emitted under encrypted-equity settlement
+            payoutNet,
+            p.status,
+            p.settlementPrice,
+            fee
+        );
+
+        FHE.allowThis(encLongOI);
+        FHE.allowThis(encShortOI);
     }
 }

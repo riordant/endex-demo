@@ -45,14 +45,20 @@ interface IEndex {
         uint256  pendingLiqCheckPrice;
         bool     liqCheckPending;
 
-        // --- NEW: Encrypted price impact (entry-only for now), X18 non-negative buckets ---
-        euint256 encImpactEntryGainX18; // trader gain from impact (rare; encrypted, >=0)
-        euint256 encImpactEntryLossX18; // trader loss from impact (common; encrypted, >=0)
+        // --- Encrypted price impact (entry-only, set on open), X18 non-negative buckets ---
+        // Exit impact is computed on-the-fly at settlement; no extra storage needed.
+        euint256 encImpactEntryGainX18; // trader gain from entry impact (encrypted, >=0)
+        euint256 encImpactEntryLossX18; // trader loss from entry impact (encrypted, >=0)
 
-        // --- NEW: Settlement path B (encrypted equity) ---
+        // --- Settlement path B (encrypted equity) ---
         // equityX18 = max(0, collateral*1e18 + gainsX18 - lossesX18)
-        // where gains/losses include price, funding, and entry impact.
+        // gains/losses include: price PnL, funding, entry/exit impact at settlement.
         euint256 pendingEquityX18; // encrypted equity (X18) awaiting decrypt in _settle
+    }
+
+    struct eint256 {
+        ebool sign;
+        euint256 val;
     }
 
     // --- Events ---
@@ -80,6 +86,8 @@ interface IEndex {
     event FundingRateRequested(uint64 epoch);
     event FundingRateCommitted(int256 newRatePerSecX18, uint64 epoch);
     event PriceImpactApplied(uint256 indexed positionId);
+    event LpDeposit(address indexed lp, uint256 amount, uint256 sharesMinted);
+    event LpWithdraw(address indexed lp, uint256 shares, uint256 amountReturned);
 
     // --- Trading API ---
     function openPosition(

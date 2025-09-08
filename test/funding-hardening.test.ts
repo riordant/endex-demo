@@ -10,7 +10,7 @@ const ONE_X18 = 10n ** 18n
 
 // CoFHE decrypts async
 function coprocessor(ms = 10_000) {
-  console.log("waiting on coprocessor..")
+  console.log("waiting for coprocessor..")
   return new Promise((r) => setTimeout(r, ms))
 }
 
@@ -486,7 +486,7 @@ describe('Endex — funding hardening tests', function () {
     expect(baseNet - actualNet < toUSDC(1n)).to.eq(true)
   })
 
-  it.only('open just before vs just after commit: earlier entry incurs >= funding than later entry (same duration after later entry)', async function () {
+  it('open just before vs just after commit: earlier entry incurs >= funding than later entry (same duration after later entry)', async function () {
     const { perps, perpsAddr, usdc, userA, userB, lp } = await loadFixture(deployFixture)
   
     await usdc.mint(lp.address, toUSDC(3_000_000n))

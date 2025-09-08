@@ -11,6 +11,7 @@ const CLOSE_FEE_BPS = 10n // 0.1%
 
 // CoFHE decrypts async
 function coprocessor(ms = 10_000) {
+  console.log("waiting for coprocessor..")
   return new Promise((r) => setTimeout(r, ms))
 }
 
