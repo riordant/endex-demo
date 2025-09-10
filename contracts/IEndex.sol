@@ -4,6 +4,17 @@ pragma solidity ^0.8.25;
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 interface IEndex {
+    // ---------- Encrypted signed integer ----------
+
+    struct eint256 {
+        // sign = true  => non-negative
+        // sign = false => negative
+        ebool    sign;
+        euint256 val;   // magnitude >= 0 (X18 where noted)
+    }
+
+    // ---------- Enums ----------
+
     enum Status {
         Open,
         AwaitingSettlement,
@@ -18,6 +29,8 @@ interface IEndex {
         StopLoss
     }
 
+    // ---------- Positions ----------
+
     struct Position {
         address owner;
         uint256 positionId;
@@ -28,7 +41,7 @@ interface IEndex {
         uint256  collateral;      // USDC (6 decimals, plaintext)
         uint256  entryPrice;      // Chainlink price (8 decimals, plaintext)
 
-        // Optional plaintext triggers (will move to encrypted later)
+        // Optional plaintext triggers (can migrate to encrypted later)
         uint256  stopLossPrice;   // price (8 decimals)
         uint256  takeProfitPrice; // price (8 decimals)
 
@@ -37,31 +50,23 @@ interface IEndex {
         Status   status;
         CloseCause cause;
 
-        // Funding index snapshot (X18, signed)
-        int256 entryFundingX18;
+        // Funding index snapshot (X18, encrypted signed)
+        eint256 entryFundingX18;
 
         // Encrypted liquidation trigger workflow
         euint256 pendingLiqFlagEnc; // 0/1 encrypted
         uint256  pendingLiqCheckPrice;
         bool     liqCheckPending;
 
-        // --- Encrypted price impact (entry-only, set on open), X18 non-negative buckets ---
-        // Exit impact is computed on-the-fly at settlement; no extra storage needed.
-        euint256 encImpactEntryGainX18; // trader gain from entry impact (encrypted, >=0)
-        euint256 encImpactEntryLossX18; // trader loss from entry impact (encrypted, >=0)
+        // Encrypted price impact (entry-only), X18 non-negative buckets
+        euint256 encImpactEntryGainX18; // trader gain from impact (encrypted, >=0)
+        euint256 encImpactEntryLossX18; // trader loss from impact (encrypted, >=0)
 
-        // --- Settlement path B (encrypted equity) ---
-        // equityX18 = max(0, collateral*1e18 + gainsX18 - lossesX18)
-        // gains/losses include: price PnL, funding, entry/exit impact at settlement.
-        euint256 pendingEquityX18; // encrypted equity (X18) awaiting decrypt in _settle
+        // Settlement path: encrypted equity (X18) awaiting decrypt in _settle
+        euint256 pendingEquityX18;
     }
 
-    struct eint256 {
-        ebool sign;
-        euint256 val;
-    }
-
-    // --- Events ---
+    // ---------- Events ----------
     event PositionOpened(
         uint256 indexed positionId,
         address indexed owner,
@@ -81,15 +86,12 @@ interface IEndex {
         uint256 feePaid
     );
 
-    event FundingAccrued(int256 ratePerSecX18, int256 cumLongX18, int256 cumShortX18, uint256 timestamp);
+    event FundingAccrued(int256 dummyOldApiKeptZero, int256 dummy2, int256 dummy3, uint256 timestamp);
+    // ^ kept only to avoid breaking listeners; values are dummies now that funding is encrypted
     event EncryptedOIUpdated(bool isLong, bool added, uint256 positionId);
-    event FundingRateRequested(uint64 epoch);
-    event FundingRateCommitted(int256 newRatePerSecX18, uint64 epoch);
     event PriceImpactApplied(uint256 indexed positionId);
-    event LpDeposit(address indexed lp, uint256 amount, uint256 sharesMinted);
-    event LpWithdraw(address indexed lp, uint256 shares, uint256 amountReturned);
 
-    // --- Trading API ---
+    // ---------- Trading API ----------
     function openPosition(
         bool isLong,
         InEuint256 calldata size_,
@@ -103,12 +105,7 @@ interface IEndex {
     function checkPositions(uint256[] calldata positionIds) external;
     function getPosition(uint256 positionId) external view returns (Position memory);
 
-    // --- Funding API ---
-    function pokeFunding() external;
-    function requestFundingRateFromSkew() external;
-    function commitFundingRate(uint64 epoch) external;
-
-    // --- Encrypted liquidation trigger (two-step) ---
+    // ---------- Encrypted liquidation trigger (two-step) ----------
     function requestLiqChecks(uint256[] calldata positionIds) external;
     function finalizeLiqChecks(uint256[] calldata positionIds) external;
 }
