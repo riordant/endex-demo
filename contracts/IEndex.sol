@@ -104,6 +104,7 @@ interface IEndex {
     function settlePositions(uint256[] calldata positionIds) external;
     function checkPositions(uint256[] calldata positionIds) external;
     function getPosition(uint256 positionId) external view returns (Position memory);
+    function nextPositionId() external view returns (uint256);
 
     // ---------- Encrypted liquidation trigger (two-step) ----------
     function requestLiqChecks(uint256[] calldata positionIds) external;

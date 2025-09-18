@@ -247,9 +247,6 @@ describe('Endex — Funding Fees', function () {
     expect(shortActualNet >= baseShortNet).to.eq(true)
   })
 
-  // -------------------------------------------------------
-  // 4) Open/close within one epoch: tiny dF sign & snapshot
-  // -------------------------------------------------------
   it('tiny accrual after commit: dF sign matches rate (no flip) for long payer', async function () {
     const { perps, perpsAddr, usdc, userA: user, lp } = await loadFixture(deployFixture)
 

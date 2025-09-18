@@ -15,10 +15,15 @@ const config: HardhatUserConfig = {
 		},
 	},
 	defaultNetwork: 'hardhat',
-	// defaultNetwork: 'localcofhe',
 	networks: {
-		// The plugin already provides localcofhe configuration
-
+		// The plugin already provides cofhe configuration
+        'hardhat': {
+            mining: {
+                auto: true,
+                interval: 5000,
+            },
+          allowUnlimitedContractSize: true
+        },
 		// Sepolia testnet configuration
 		'eth-sepolia': {
 			url: process.env.SEPOLIA_RPC_URL || 'https://ethereum-sepolia.publicnode.com',

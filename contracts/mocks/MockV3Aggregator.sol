@@ -6,6 +6,8 @@ contract MockV3Aggregator {
     uint8 private _decimals;
     uint80 private _roundId;
 
+    event AnswerUpdated(int256 newPrice);
+
     constructor(uint8 _decimals_, int256 _price_) {
         _decimals = _decimals_;
         _price = _price_;
@@ -15,6 +17,7 @@ contract MockV3Aggregator {
     function updateAnswer(int256 _newPrice) external {
         _price = _newPrice;
         _roundId++;
+        emit AnswerUpdated(_newPrice);
     }
 
     function decimals() external view returns (uint8) {
