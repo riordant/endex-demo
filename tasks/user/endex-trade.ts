@@ -1,10 +1,10 @@
-// tasks/endex-trade.ts
+// tasks/user/endex-trade.ts
 import { task } from "hardhat/config";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { cofhejs_initializeWithHardhatSigner } from "cofhe-hardhat-plugin";
-import {coprocessor, encryptUint256, fmtPriceE8, fmtUSD6, getDeployment, pad, parseUsd6} from "./utils";
+import {coprocessor, encryptUint256, fmtPriceE8, fmtUSD6, getDeployment, pad, parseUsd6} from "../utils";
 
 task("endex-trade", "Open or close a position (interactive if no args)")
   .addOptionalParam("mode", "o=open, c=close")

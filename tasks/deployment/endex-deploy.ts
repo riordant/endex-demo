@@ -1,7 +1,7 @@
-// tasks/deploy-endex.ts
+// tasks/deployment/endex-deploy.ts
 import { task } from "hardhat/config";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
-import { saveDeployment } from "./utils";
+import { saveDeployment } from "../utils";
 
 task("endex-deploy", "Deploy the Endex contract (and mocks if needed)")
   .addOptionalParam("usdc", "USDC token address (6 decimals)")

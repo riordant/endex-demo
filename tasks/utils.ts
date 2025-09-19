@@ -48,9 +48,6 @@ export function parseUsd6(userInput: string): bigint {
   const frac6 = (frac + "000000").slice(0, 6);
   return BigInt(int) * 1_000_000n + BigInt(frac6);
 }
-export function fmtUSD6(usdc6: bigint) {
-  return (Number(usdc6) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 export function fmtPriceE8(p: bigint) {
   return (Number(p) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -67,4 +64,94 @@ export async function encryptUint256(val: bigint) {
 export async function coprocessor(ms = 10_000) {
   console.log("waiting for coprocessor..")
   return new Promise((r) => setTimeout(r, ms))
+}
+
+
+export const ENDEX_ABI = loadAbiFromArtifact("contracts/Endex.sol/Endex.json");
+export const AGGREGATOR_ABI = loadAbiFromArtifact("contracts/mocks/MockV3Aggregator.sol/MockV3Aggregator.json");
+export const ERC20_ABI = loadAbiFromArtifact("contracts/mocks/MintableToken.sol/MintableToken.json");
+
+/** Reads Hardhat artifact JSON and returns its `abi` array. */
+export function loadAbiFromArtifact(relativeArtifactPath: string): any[] {
+  // relativeArtifactPath examples:
+  //  "contracts/Endex.sol/Endex.json"
+  //  "contracts/mocks/MintableToken.sol/MintableToken.json"
+  const full = path.join(process.cwd(), "artifacts", relativeArtifactPath);
+  if (!fs.existsSync(full)) {
+    throw new Error(`Artifact not found: ${full}. Did you run \`hardhat compile\`?`);
+  }
+  const json = JSON.parse(fs.readFileSync(full, "utf8"));
+  if (!json.abi) {
+    throw new Error(`No 'abi' key in artifact: ${full}`);
+  }
+  return json.abi;
+}
+
+export function parseStatus(status : BigInt) {
+    switch(status) {
+    case 0n:
+        return "Open"
+    case 1n:
+        return "Awaiting Settlement"
+    case 2n:
+        return "Liquidated"
+    case 3n:
+        return "Closed"
+    default:
+        throw new Error("Unknown Status")
+    }
+}
+
+
+export function parseCloseCause(status : BigInt) {
+    switch(status) {
+    case 0n:
+        return "User Close"
+    case 1n:
+        return "Liquidation"
+    case 2n:
+        return "Take Profit"
+    case 3n:
+        return "Stop Loss"
+    default:
+        throw new Error("Unknown Status")
+    }
+}
+
+export function bpPerHourFromX18(ratePerSecX18: bigint): number {
+  // bp/hr = rate * 3600 * 1e4
+  const r = Number(ratePerSecX18) / 1e18;
+  return r * 3600 * 1e4;
+}
+export function bpPerDayFromX18(ratePerSecX18: bigint): number {
+  // bp/day = rate * 86400 * 1e4
+  const r = Number(ratePerSecX18) / 1e18;
+  return r * 86400 * 1e4;
+}
+
+export function fmtUSD6(usdc6: bigint): string {
+  return (Number(usdc6) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+export function fmt(num: number, frac = 2): string {
+  return num.toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac });
+}
+
+export function clearScreen() {
+  // ANSI: ESC[2J clear screen, ESC[H cursor home
+  process.stdout.write("\x1b[2J\x1b[H");
+}
+
+export async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+export function scaleToDecimals(value: bigint, from: number, to: number): bigint {
+  if (from === to) return value;
+  if (from < to) {
+    const mul = 10n ** BigInt(to - from);
+    return value * mul;
+  } else {
+    const div = 10n ** BigInt(from - to);
+    return value / div;
+  }
 }

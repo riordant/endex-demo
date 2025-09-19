@@ -271,7 +271,7 @@ contract EndexBase is IEndex {
         // Permissions for ciphertexts
         initialGas = gasleft();
         FHE.allowSender(p.size);
-        FHE.allowSender(p.pendingLiqFlagEnc);
+        FHE.allowGlobal(p.pendingLiqFlagEnc);
 
         FHE.allowThis(p.size);
         FHE.allowThis(p.pendingLiqFlagEnc);
