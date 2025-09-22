@@ -12,6 +12,7 @@ import {
   parseCloseCause,
   AGGREGATOR_ABI,
   coprocessor,
+  fmtPnl,
 } from "../utils";
 
 task("user-dashboard", "GMX-style user dashboard with batched owner-equity refresh")
@@ -85,8 +86,12 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         // Stage equity for all positions in parallel
         const receipts = await Promise.allSettled(
           knownIds.map(async (id) => {
-            const tx = await (endex as any).ownerEquity(id);
-            return tx.wait();
+              try {
+                const tx = await (endex as any).ownerEquity(id);
+                return tx.wait();
+              } catch {
+                  // igmore failures for closed positions
+              }
           })
         );
 
@@ -133,15 +138,19 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
       let markPx = NaN;
       try { const rd = await aggregator.latestRoundData(); markPx = toNumE8(BigInt(rd[1])); } catch {}
 
+      let netValue = BigInt(0);
+
       // Header
       console.log(
-        col("POSITION",   28) +
-        col("SIZE",       16) +
-        col("NET VALUE",  16) +
-        col("COLLATERAL", 16) +
-        col("ENTRY PRICE",16) +
-        col("MARK PRICE", 16) +
-        col("LIQ. PRICE", 16) +
+        col("POSITION",      28) +
+        col("SIZE",          16) +
+        col("NET VALUE",     16) +
+        col("COLLATERAL",    16) +
+        col("PNL",           16) +
+        col("ENTRY PRICE",   16) +
+        col("MARK PRICE",    16) +
+        col("LIQ. PRICE",    16) +
+        col("SETTLED PRICE", 16) +
         col("STATUS",     28)
       );
 
@@ -170,13 +179,17 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         try {
           const eqDec = await cofhejs.unseal(p.pendingEquityX18, FheTypes.Uint256);
           if (eqDec.success) {
-            //console.log("raw result equity:", BigInt(eqDec.data));
-            const netValue = div1e18(BigInt(eqDec.data));
-            //console.log("div result equity:", netValue);
+            netValue = div1e18(BigInt(eqDec.data));
             netValueStr = "$" + fmtUSD6(netValue);
+            //console.log("raw result equity:", BigInt(eqDec.data));
+            //console.log("div result equity:", netValue);
             //console.log("format result equity:", netValueStr);
+          } else {
+              console.log("unsucessful decrypt")
           }
         } catch {}
+
+        let pnlStr = fmtPnl(netValue - collateralUSDC6);
 
         // leverage display
         let levStr = "—";
@@ -200,6 +213,12 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
           }
         }
 
+        // liq price (approx; oracle mark model; funding paid on close ⇒ no drift mid-life)
+        let settledPx = 0;
+        if (p.settlementPrice > 0) {
+            settledPx = toNumE8(BigInt(p.settlementPrice));
+        }
+
         const status = parseStatus(p.status);
         const cause  = (status === "Closed" || status === "Liquidated") ? parseCloseCause(p.cause) : "";
         const statusCell = status + (cause ? " / " + cause : "");
@@ -212,9 +231,11 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
           col(sizeStr,      16) +
           col(netValueStr,  16) +
           col("$" + usd(collateral, 2), 16) +
+          col(pnlStr,  16) +
           col("$" + usd(entry, 2),     16) +
           col(Number.isFinite(markPx) ? ("$" + usd(markPx, 2)) : "—", 16) +
           col(liqStr,       16) +
+          col(settledPx > 0 ? ("$" + usd(settledPx, 2)) : "—", 16) +
           col(statusCell,   28)
         );
       }

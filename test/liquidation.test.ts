@@ -69,7 +69,7 @@ describe('Endex — Liquidation', function () {
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
 
-    await perps.connect(user).openPosition(true, encSize, collateral, 0, 0)
+    await perps.connect(user).openPosition(true, encSize, collateral)
 
     // Big drop to force liquidation
     await feed.updateAnswer(price(1500n))
@@ -112,7 +112,7 @@ describe('Endex — Liquidation', function () {
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
 
-    await perps.connect(user).openPosition(true, encSize, collateral, 0, 0)
+    await perps.connect(user).openPosition(true, encSize, collateral)
 
     // ~50% drop (2000 -> 1000) would make (ratio - 1) negative if naive; our buckets avoid underflow
     await feed.updateAnswer(price(1000n))
@@ -150,7 +150,7 @@ describe('Endex — Liquidation', function () {
       const [eL] = await hre.cofhe.expectResultSuccess(
         cofhejs.encrypt([Encryptable.uint256(toUSDC(120_000n))])
       )
-      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n), 0, 0)
+      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n))
   
       await coprocessor()
   
@@ -164,7 +164,7 @@ describe('Endex — Liquidation', function () {
     const [encSizeL] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notionalL)])
     )
-    await perps.connect(user).openPosition(true, encSizeL, collateralL, 0, 0)
+    await perps.connect(user).openPosition(true, encSizeL, collateralL)
   
     // Accrue funding meaningfully
     await time.increase(3 * 24 * 3600) // 3 days
@@ -237,7 +237,7 @@ describe('Endex — Liquidation', function () {
       const [eS] = await hre.cofhe.expectResultSuccess(
         cofhejs.encrypt([Encryptable.uint256(toUSDC(150_000n))])
       )
-      await perps.connect(user).openPosition(false, eS, toUSDC(30_000n), 0, 0)
+      await perps.connect(user).openPosition(false, eS, toUSDC(30_000n))
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
       expect(rate < 0n, 'expected negative funding rate (shorts pay)').to.eq(true)
@@ -249,7 +249,7 @@ describe('Endex — Liquidation', function () {
     const [encSizeS] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notionalS)])
     )
-    await perps.connect(user).openPosition(false, encSizeS, collateralS, 0, 0)
+    await perps.connect(user).openPosition(false, encSizeS, collateralS)
   
     // Accrue funding for a bit
     await time.increase(6 * 3600) // 6h

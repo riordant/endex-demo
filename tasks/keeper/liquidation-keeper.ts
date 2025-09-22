@@ -5,7 +5,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 import { ethers as EthersLib } from "ethers";
-import { AGGREGATOR_ABI, ENDEX_ABI, sleep } from "../utils";
+import { AGGREGATOR_ABI, coprocessor, ENDEX_ABI, sleep } from "../utils";
 
 /**
  * Long-running liquidation + settlement keeper.
@@ -112,6 +112,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
           const tx1 = await endex.requestLiqChecks(openIds);
           console.log(`requestLiqChecks tx=${tx1.hash}`);
           await tx1.wait();
+          await sleep(300);
 
           console.log(`waiting FLAG_WAIT_MS=${flagWaitMs}ms for liq flag decrypt…`);
           await sleep(flagWaitMs);
@@ -119,6 +120,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
           const tx2 = await endex.finalizeLiqChecks(openIds);
           console.log(`finalizeLiqChecks tx=${tx2.hash}`);
           await tx2.wait();
+          await sleep(300);
         } else {
           shouldSettle = false;
           console.log("No open positions → skipping liq request/finalize.");
@@ -133,10 +135,20 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
           console.log(`AwaitingSettlement: ${awaiting.length} ${awaiting.length ? `[${awaiting.join(",")}]` : ""}`);
 
           if (awaiting.length > 0) {
-            const tx3 = await endex.settlePositions(awaiting);
-            console.log(`settlePositions tx=${tx3.hash}`);
-            await tx3.wait();
-            console.log("✓ Settlement complete.");
+              let pending = true;
+              while(pending) {
+                  try {
+                    const tx3 = await endex.settlePositions(awaiting);
+                    console.log(`settlePositions tx=${tx3.hash}`);
+                    await tx3.wait();
+                    await sleep(300);
+                    console.log("✓ Settlement complete.");
+                    pending = false;
+                  } catch {
+                      await coprocessor();
+                      console.log("waiting on coprocessor..");
+                  }
+              }
           } else {
             console.log("Nothing to settle.");
           }
@@ -157,9 +169,36 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
     }
     
     // Subscribe to AnswerUpdated directly (no polling)
-    aggregator.on("AnswerUpdated", async (...args : any) => {
-      // Optional: args = [current, roundId, updatedAt, event]
-      await cycle("AnswerUpdated");
+    //aggregator.on("AnswerUpdated", async (...args : any) => {
+    //  // Optional: args = [current, roundId, updatedAt, event]
+    //  await cycle("AnswerUpdated");
+    //});
+    //
+    //
+
+    let lastBlock = await provider.getBlockNumber();
+    provider.on("block", async (bn: number) => {
+      // Only query from the next block we haven’t processed
+      const from = lastBlock + 1;
+      const to = bn;
+      if (to < from) { lastBlock = bn; return; }
+    
+      try {
+        // Ask ethers to get all AnswerUpdated logs in [from, to]
+        // You can use the fragment name directly:
+        const logs = await aggregator.queryFilter("AnswerUpdated", from, to);
+    
+        if (logs.length > 0) {
+          console.log(`Detected ${logs.length} AnswerUpdated log(s) in blocks ${from}..${to}`);
+          await cycle(`AnswerUpdated x${logs.length}`);
+        } else {
+            console.log("no logs found.");
+        }
+      } catch (e: any) {
+        console.error("block poll error:", e?.message || e);
+      } finally {
+        lastBlock = bn;
+      }
     });
 
     // On shutdown, clean up and close the WS

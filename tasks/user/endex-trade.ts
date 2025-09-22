@@ -73,7 +73,7 @@ task("endex-trade", "Open or close a position (interactive if no args)")
 
       console.log(`\nOpening: ${isLong ? "LONG" : "SHORT"}  size=$${fmtUSD6(sizeUSDC6)}  collateral=$${fmtUSD6(collateralUSDC6)} lev=${levNum}x`);
       // artifacts will have the exact InEuint256 type; most builds accept raw bytes for `size_`
-      const tx = await endex.openPosition(isLong, sizeEnc, collateralUSDC6, 0, 0);
+      const tx = await endex.openPosition(isLong, sizeEnc, collateralUSDC6);
       console.log(`→ tx: ${tx.hash}`);
       await tx.wait();
       console.log("✅ Position opened.\n");

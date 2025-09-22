@@ -129,6 +129,13 @@ export function bpPerDayFromX18(ratePerSecX18: bigint): number {
   return r * 86400 * 1e4;
 }
 
+export function fmtPnl(pnl: bigint): string {
+  let pnlStr = fmtUSD6(pnl);
+  return (pnlStr.indexOf('-') > -1) 
+      ? `-\$${pnlStr.substring(1)}` 
+      : `+\$${pnlStr}`;
+}
+
 export function fmtUSD6(usdc6: bigint): string {
   return (Number(usdc6) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

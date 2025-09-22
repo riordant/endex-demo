@@ -17,6 +17,7 @@
         "local:user:dashboard": "hardhat user-dashboard --network localhost",
         "local:liquidator": "hardhat liquidation-keeper --network localhost",
         "local:global:dashboard": "hardhat global-dashboard --network localhost",
+        "local:miner": "hardhat miner --network localhost",
 		"// --------------------": "",
 		"//  --- sepolia ---": "",
 		"//   --------------------": "",

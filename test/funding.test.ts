@@ -102,10 +102,10 @@ describe('Endex — Funding Fees', function () {
       await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
 
       const [eL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(Long)]))
-      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n), 0, 0)
+      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n))
 
       const [eS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(Short)]))
-      await perps.connect(user).openPosition(false, eS, toUSDC(20_000n), 0, 0)
+      await perps.connect(user).openPosition(false, eS, toUSDC(20_000n))
 
       await coprocessor()
 
@@ -136,9 +136,9 @@ describe('Endex — Funding Fees', function () {
     // Create positive rate (long>short)
     {
       const [eL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(120_000n))]))
-      await perps.connect(userA).openPosition(true, eL, toUSDC(20_000n), 0, 0)
+      await perps.connect(userA).openPosition(true, eL, toUSDC(20_000n))
       const [eS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(30_000n))]))
-      await perps.connect(userB).openPosition(false, eS, toUSDC(10_000n), 0, 0)
+      await perps.connect(userB).openPosition(false, eS, toUSDC(10_000n))
 
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
@@ -206,9 +206,9 @@ describe('Endex — Funding Fees', function () {
     {
       // A: big long, B: small short
       const [eL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(200_000n))]))
-      await perps.connect(userA).openPosition(true, eL, toUSDC(30_000n), 0, 0)
+      await perps.connect(userA).openPosition(true, eL, toUSDC(30_000n))
       const [eS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(40_000n))]))
-      await perps.connect(userB).openPosition(false, eS, toUSDC(10_000n), 0, 0)
+      await perps.connect(userB).openPosition(false, eS, toUSDC(10_000n))
 
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
@@ -261,7 +261,7 @@ describe('Endex — Funding Fees', function () {
     // Make positive rate
     {
       const [eL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(100_000n))]))
-      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n), 0, 0)
+      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n))
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
       expect(rate > 0n).to.eq(true)
@@ -271,7 +271,7 @@ describe('Endex — Funding Fees', function () {
     const coll = toUSDC(10_000n)
     const notional = toUSDC(30_000n)
     const [eSz] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(notional)]))
-    await perps.connect(user).openPosition(true, eSz, coll, 0, 0)
+    await perps.connect(user).openPosition(true, eSz, coll)
 
     // Very small accrual
     await time.increase(5) // 5 seconds
@@ -314,7 +314,7 @@ describe('Endex — Funding Fees', function () {
       const [eL] = await hre.cofhe.expectResultSuccess(
         cofhejs.encrypt([Encryptable.uint256(toUSDC(150_000n))])
       )
-      await perps.connect(userA).openPosition(true, eL, toUSDC(20_000n), 0, 0)
+      await perps.connect(userA).openPosition(true, eL, toUSDC(20_000n))
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
       expect(rate > 0n).to.eq(true) // longs pay
@@ -326,7 +326,7 @@ describe('Endex — Funding Fees', function () {
     const [eA] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notionalA)])
     )
-    await perps.connect(userA).openPosition(true, eA, collA, 0, 0)
+    await perps.connect(userA).openPosition(true, eA, collA)
     const entryFundingA = await cofheUnsealEint256((await perps.getPosition(2)).entryFundingX18)
   
     await coprocessor()
@@ -337,7 +337,7 @@ describe('Endex — Funding Fees', function () {
     const [eB] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notionalB)])
     )
-    await perps.connect(userB).openPosition(true, eB, collB, 0, 0)
+    await perps.connect(userB).openPosition(true, eB, collB)
     const entryFundingB = await cofheUnsealEint256((await perps.getPosition(3)).entryFundingX18)
   
     // Accrue same duration for both after B’s entry
@@ -466,7 +466,7 @@ describe('Endex — Funding Fees', function () {
 
     console.log("openPosition..")
     await perps.connect(user).openPosition(
-      true, encSize, collateral, 0, 0
+      true, encSize, collateral
     )
     console.log("done..")
 
@@ -538,7 +538,7 @@ describe('Endex — Funding Fees', function () {
     const [encSize] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
-    await perps.connect(user).openPosition(false, encSize, collateral, 0, 0)
+    await perps.connect(user).openPosition(false, encSize, collateral)
 
     await coprocessor()
     

@@ -29,7 +29,7 @@ interface IEndex {
         StopLoss
     }
 
-    // ---------- Positions ----------
+    // ---------- Position ----------
 
     struct Position {
         address owner;
@@ -40,10 +40,6 @@ interface IEndex {
         euint256 size;            // notional in USDC (6 decimals, encrypted)
         uint256  collateral;      // USDC (6 decimals, plaintext)
         uint256  entryPrice;      // Chainlink price (8 decimals, plaintext)
-
-        // Optional plaintext triggers (can migrate to encrypted later)
-        uint256  stopLossPrice;   // price (8 decimals)
-        uint256  takeProfitPrice; // price (8 decimals)
 
         // Lifecycle state
         uint256  settlementPrice; // price (8 decimals) used when AwaitingSettlement
@@ -86,23 +82,15 @@ interface IEndex {
         uint256 feePaid
     );
 
-    event FundingAccrued(int256 dummyOldApiKeptZero, int256 dummy2, int256 dummy3, uint256 timestamp);
-    // ^ kept only to avoid breaking listeners; values are dummies now that funding is encrypted
-    event EncryptedOIUpdated(bool isLong, bool added, uint256 positionId);
-    event PriceImpactApplied(uint256 indexed positionId);
-
     // ---------- Trading API ----------
     function openPosition(
         bool isLong,
         InEuint256 calldata size_,
-        uint256 collateral,
-        uint256 stopLossPrice,
-        uint256 takeProfitPrice
+        uint256 collateral
     ) external;
 
     function closePosition(uint256 positionId) external;
     function settlePositions(uint256[] calldata positionIds) external;
-    function checkPositions(uint256[] calldata positionIds) external;
     function getPosition(uint256 positionId) external view returns (Position memory);
     function nextPositionId() external view returns (uint256);
 

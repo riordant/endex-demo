@@ -150,9 +150,6 @@ contract EndexBase is IEndex {
         _encAddSigned(cumFundingShortX18, _ebNot(fundingRatePerSecX18.sign),  bump);
 
         _allowFunding();
-
-        // Keep legacy event signature for compatibility (values meaningless now).
-        emit FundingAccrued(0, 0, 0, nowTs);
     }
 
     /// @dev Derive encrypted fundingRatePerSecX18 from encrypted skew and clamp |rate|.
@@ -181,25 +178,19 @@ contract EndexBase is IEndex {
     function openPosition(
         bool isLong,
         InEuint256 calldata size_,
-        uint256 collateral,
-        uint256 stopLossPrice,
-        uint256 takeProfitPrice
+        uint256 collateral
     ) external virtual {
         _openPosition(
             isLong,
             size_,
-            collateral,
-            stopLossPrice,
-            takeProfitPrice
+            collateral
         );
     }
 
     function _openPosition(
         bool isLong,
         InEuint256 calldata size_,
-        uint256 collateral,
-        uint256 stopLossPrice,
-        uint256 takeProfitPrice
+        uint256 collateral
     ) internal {
         uint initialGas = gasleft();
         // Accrue funding before opening (with previous rate)
@@ -238,8 +229,6 @@ contract EndexBase is IEndex {
             size: size,
             collateral: collateral,
             entryPrice: uint256(price),
-            stopLossPrice: stopLossPrice,
-            takeProfitPrice: takeProfitPrice,
             settlementPrice: 0,
             status: Status.Open,
             cause: CloseCause.UserClose, // default; may be overwritten later
@@ -257,10 +246,8 @@ contract EndexBase is IEndex {
         // Update encrypted OI aggregates (AFTER recording entry impact based on pre-trade OI)
         if (isLong) {
             encLongOI = FHE.add(encLongOI, size);
-            emit EncryptedOIUpdated(true, true, id);
         } else {
             encShortOI = FHE.add(encShortOI, size);
-            emit EncryptedOIUpdated(false, true, id);
         }
 
         // Update funding rate for future accruals
@@ -283,7 +270,6 @@ contract EndexBase is IEndex {
         FHE.allowThis(encShortOI);
         console.log("set allowance gas used: ", initialGas - gasleft());
 
-        emit PriceImpactApplied(id);
         emit PositionOpened(id, msg.sender, isLong, size, collateral, uint256(price));
     }
 
@@ -301,36 +287,6 @@ contract EndexBase is IEndex {
             Position storage p = positions[id];
             if (p.status != Status.AwaitingSettlement) continue;
             _settle(id);
-        }
-    }
-
-    function checkPositions(uint256[] calldata positionIds) external override {
-        (uint80 rid,, , ,) = ethUsdFeed.latestRoundData();
-        if (rid == lastRoundId) return;
-        lastRoundId = rid;
-
-        uint256 price = _markPrice();
-
-        for (uint256 i = 0; i < positionIds.length; i++) {
-            uint256 id = positionIds[i];
-            Position storage p = positions[id];
-            if (p.status != Status.Open) continue;
-
-            // Plaintext TP/SL (will move to encrypted later)
-            bool hitTp = p.takeProfitPrice > 0 && (p.isLong ? price >= p.takeProfitPrice : price <= p.takeProfitPrice);
-            bool hitSl = p.stopLossPrice   > 0 && (p.isLong ? price <= p.stopLossPrice   : price >= p.stopLossPrice);
-
-            if (hitTp) {
-                p.cause = CloseCause.TakeProfit;
-                _setupSettlement(p, price);
-                continue;
-            }
-            if (hitSl) {
-                p.cause = CloseCause.StopLoss;
-                _setupSettlement(p, price);
-                continue;
-            }
-            // NOTE: liquidation handled via requestLiqChecks/finalizeLiqChecks
         }
     }
 
@@ -374,14 +330,18 @@ contract EndexBase is IEndex {
         for (uint256 i = 0; i < positionIds.length; i++) {
             Position storage p = positions[positionIds[i]];
             if (!p.liqCheckPending || p.status != Status.Open) continue;
+            console.log("passed if checks..");
 
             (uint256 flag, bool ready) = FHE.getDecryptResultSafe(p.pendingLiqFlagEnc);
+            console.log("checking value is ready..");
             if (!ready) continue;
+            console.log("value is ready..");
 
             p.liqCheckPending = false;
 
             if (flag == 1) {
                 p.cause = CloseCause.Liquidation;
+                console.log("setup settlement..");
                 _setupSettlement(p, p.pendingLiqCheckPrice);
             }
 
@@ -733,26 +693,35 @@ contract EndexBase is IEndex {
         euint256 lhs       = FHE.add(collX18, gainsX18);
 
         // equity = max(0, lhs - losses)
+        console.log("check solvency..");
         ebool insolvent    = FHE.lt(lhs, lossesX18);
+        console.log("get diff..");
         euint256 diff      = FHE.sub(FHE.select(insolvent, lossesX18, lhs),
                                      FHE.select(insolvent, lhs,       lossesX18));
         // if insolvent => 0; else => diff
+        console.log("select..");
         return FHE.select(insolvent, FHE.asEuint256(0), diff);
     }
 
     function _setupSettlement(Position storage p, uint256 settlementPrice) internal {
         // Accrue funding to now
+        console.log("poke funding..");
         _pokeFunding();
 
         // Build encrypted equity at this price (X18) including exit impact, then request decrypt
+        console.log("get enc eq 18..");
         euint256 encEqX18 = _encEquityOnlyX18(p, settlementPrice);
+        console.log("set pending equity..");
         p.pendingEquityX18 = encEqX18;
+        console.log("decrypt..");
         FHE.decrypt(p.pendingEquityX18);
 
+        console.log("set positions..");
         p.status = Status.AwaitingSettlement;
         p.settlementPrice = settlementPrice;
 
         FHE.allowThis(p.pendingEquityX18);
+        FHE.allowGlobal(p.pendingEquityX18);
     }
 
     function _settle(uint256 positionId) internal {
@@ -779,10 +748,8 @@ contract EndexBase is IEndex {
         // Update encrypted OI aggregates (remove size)
         if (p.isLong) {
             encLongOI = FHE.sub(encLongOI, p.size);
-            emit EncryptedOIUpdated(true, false, positionId);
         } else {
             encShortOI = FHE.sub(encShortOI, p.size);
-            emit EncryptedOIUpdated(false, false, positionId);
         }
 
         // After OI change, update funding rate for future accruals

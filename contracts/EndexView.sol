@@ -292,7 +292,9 @@ abstract contract EndexView is EndexBase {
         // only position owner may call
         Position storage p = positions[positionId];
         require(p.owner == msg.sender, "Not owner");
-        require(p.status < Status.Liquidated, "closed position");
+        require(p.status == Status.Open, "position not open");
+
+        _pokeFunding(); // update the funding rate
 
         p.pendingEquityX18 = _encEquityOnlyX18(p, _markPrice());
 
