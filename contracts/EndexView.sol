@@ -287,4 +287,17 @@ abstract contract EndexView is EndexBase {
         ebool lossGE = FHE.gte(lossX18, gainX18);
         return FHE.select(lossGE, FHE.asEuint256(1), FHE.asEuint256(0));
     }
+
+    function ownerEquity(uint256 positionId) external {
+        // only position owner may call
+        Position storage p = positions[positionId];
+        require(p.owner == msg.sender, "Not owner");
+        require(p.status < Status.Liquidated, "closed position");
+
+        p.pendingEquityX18 = _encEquityOnlyX18(p, _markPrice());
+
+        // only owner may read offchain
+        FHE.allowSender(p.pendingEquityX18);
+        FHE.allowThis(p.pendingEquityX18);
+    }
 }

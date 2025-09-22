@@ -62,7 +62,7 @@ export async function encryptUint256(val: bigint) {
 
 // CoFHE decrypts async
 export async function coprocessor(ms = 10_000) {
-  console.log("waiting for coprocessor..")
+  //console.log("waiting for coprocessor..")
   return new Promise((r) => setTimeout(r, ms))
 }
 
