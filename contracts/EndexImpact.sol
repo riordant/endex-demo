@@ -5,9 +5,7 @@ import "./EndexBase.sol";
 
 abstract contract EndexImpact is EndexBase { 
     using FHEHelpers for *;
-    // ===============================
-    // PRICE IMPACT
-    // ===============================
+
     /// @dev Entry impact buckets at open (before OI update).
     function _encImpactEntryBucketsAtOpenX18(
         bool isLong,
@@ -29,7 +27,7 @@ abstract contract EndexImpact is EndexBase {
     /// @dev Exit impact buckets at close (before OI is removed).
     /// For exit, the trade is in the OPPOSITE direction with size = position.size.
     function _encImpactExitBucketsAtCloseX18(
-        IEndex.Position storage p,
+        Position storage p,
         uint256 oraclePrice
     ) internal override returns (euint256 gainX18, euint256 lossX18) {
         euint256 K = _impactKEnc(oraclePrice);

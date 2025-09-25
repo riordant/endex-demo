@@ -3,15 +3,12 @@ pragma solidity >=0.8.25;
 
 import "./EndexBase.sol";
 
-abstract contract EndexLiquidity is EndexBase {
+abstract contract EndexLP is EndexBase {
     using SafeERC20 for IERC20;
 
     event LpDeposit(address indexed lp, uint256 amount, uint256 sharesMinted);
     event LpWithdraw(address indexed lp, uint256 shares, uint256 amountReturned);
 
-    // ===============================
-    // LIQUIDITY PROVISION
-    // ===============================
     function lpDeposit(uint256 amount) external {
         require(amount > 0, "amount=0");
         usdc.safeTransferFrom(msg.sender, address(this), amount);

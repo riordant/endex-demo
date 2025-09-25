@@ -32,7 +32,7 @@ contract EndexHarness is Endex {
             collateral
         );
         _allowFunding_Global();
-        IEndex.Position storage position = positions[nextPositionId-1];
+        Position storage position = positions[nextPositionId-1];
         _allowEint256_Global(position.entryFundingX18);
     }
 

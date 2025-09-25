@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.25;
 
-import {IEndex} from "./interfaces/IEndex.sol";
 import {IAggregatorV3} from "./interfaces/IAggregatorV3.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -12,6 +11,53 @@ import "hardhat/console.sol";
 abstract contract EndexBase {
     using FHEHelpers for *;
     using SafeERC20 for IERC20;
+
+    // ---------- Enums ----------
+    enum Status {
+        Open,
+        AwaitingSettlement,
+        Liquidated,
+        Closed
+    }
+
+    enum CloseCause {
+        UserClose,
+        Liquidation,
+        TakeProfit,
+        StopLoss
+    }
+
+    // ---------- Position ----------
+    struct Position {
+        address owner;
+        uint256 positionId;
+        bool    isLong;
+
+        // Core economic state
+        euint256 size;            // notional in USDC (6 decimals, encrypted)
+        uint256  collateral;      // USDC (6 decimals, plaintext)
+        uint256  entryPrice;      // Chainlink price (8 decimals, plaintext)
+
+        // Lifecycle state
+        uint256  settlementPrice; // price (8 decimals) used when AwaitingSettlement
+        Status   status;
+        CloseCause cause;
+
+        // Funding index snapshot (X18, encrypted signed)
+        eint256 entryFundingX18;
+
+        // Encrypted liquidation trigger workflow
+        euint256 pendingLiqFlagEnc; // 0/1 encrypted
+        uint256  pendingLiqCheckPrice;
+        bool     liqCheckPending;
+
+        // Encrypted price impact (entry-only), X18 non-negative buckets
+        euint256 encImpactEntryGainX18; // trader gain from impact (encrypted, >=0)
+        euint256 encImpactEntryLossX18; // trader loss from impact (encrypted, >=0)
+
+        // Settlement path: encrypted equity (X18) awaiting decrypt in _settle
+        euint256 pendingEquityX18;
+    }
 
     // ===============================
     // CONSTANTS
@@ -48,7 +94,7 @@ abstract contract EndexBase {
 
     // Positions
     uint256 public nextPositionId = 1;
-    mapping(uint256 => IEndex.Position) internal positions;
+    mapping(uint256 => Position) internal positions;
 
     // -------- Funding state --------
     // signed, per second, X18
@@ -90,16 +136,16 @@ abstract contract EndexBase {
     // cross-module functions
     function _pokeFunding() internal virtual;
     function _markPrice() internal view virtual returns (uint256);
-    function _setupSettlement(IEndex.Position storage p, uint256 settlementPrice) internal virtual;
+    function _setupSettlement(uint256 positionId, uint256 settlementPrice) internal virtual;
 
     function _encPnlBucketsX18(
-        IEndex.Position storage p,
+        Position storage p,
         uint256 price
     ) internal virtual returns (euint256 gainX18, euint256 lossX18);
 
 
     function _encFundingBucketsX18(
-        IEndex.Position storage p
+        Position storage p
     ) internal virtual returns (euint256 gainX18, euint256 lossX18);
 
     function _encImpactEntryBucketsAtOpenX18(
@@ -109,11 +155,13 @@ abstract contract EndexBase {
     ) internal virtual returns (euint256 gainX18, euint256 lossX18);
 
     function _encImpactExitBucketsAtCloseX18(
-        IEndex.Position storage p,
+        Position storage p,
         uint256 oraclePrice
     ) internal virtual returns (euint256 gainX18, euint256 lossX18);
 
     function _settle(uint256 positionId) internal virtual;
 
     function _setFundingRateFromSkew() internal virtual;
+
+    function _ownerEquity(uint256 positionId, uint256 price) internal virtual;
 }

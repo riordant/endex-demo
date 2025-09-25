@@ -9,17 +9,14 @@ abstract contract EndexSettlement is EndexBase {
     event PositionClosed(
         uint256 indexed positionId,
         address indexed owner,
-        int256 pnl,          // kept for compatibility; 0 when using encrypted equity path
         uint256 payout,      // net payout to user (after fee)
-        IEndex.Status status,       // Closed or Liquidated
+        Status status,       // Closed or Liquidated
         uint256 closePrice,  // settlementPrice used
         uint256 feePaid
     );
 
-    // ===============================
-    // SETTLEMENT
-    // ===============================
-    function _setupSettlement(IEndex.Position storage p, uint256 settlementPrice) internal override {
+    function _setupSettlement(uint256 positionId, uint256 settlementPrice) internal override {
+        Position storage p = positions[positionId];
         // Accrue funding to now
         _pokeFunding();
 
@@ -28,16 +25,19 @@ abstract contract EndexSettlement is EndexBase {
         p.pendingEquityX18 = encEqX18;
         FHE.decrypt(p.pendingEquityX18);
 
-        p.status = IEndex.Status.AwaitingSettlement;
+        p.status = Status.AwaitingSettlement;
         p.settlementPrice = settlementPrice;
 
         FHE.allowThis(p.pendingEquityX18);
         FHE.allowGlobal(p.pendingEquityX18);
+
+        // set user equity on close
+        _ownerEquity(positionId, settlementPrice);
     }
 
     function _settle(uint256 positionId) internal override {
-        IEndex.Position storage p = positions[positionId];
-        require(p.status == IEndex.Status.AwaitingSettlement, "not awaiting settlement");
+        Position storage p = positions[positionId];
+        require(p.status == Status.AwaitingSettlement, "not awaiting settlement");
 
         (uint256 eqX18, bool ready) = FHE.getDecryptResultSafe(p.pendingEquityX18);
         require(ready, "equity not ready");
@@ -67,12 +67,11 @@ abstract contract EndexSettlement is EndexBase {
         _setFundingRateFromSkew();
 
         // Mark final status by cause
-        p.status = (p.cause == IEndex.CloseCause.Liquidation) ? IEndex.Status.Liquidated : IEndex.Status.Closed;
+        p.status = (p.cause == CloseCause.Liquidation) ? Status.Liquidated : Status.Closed;
 
         emit PositionClosed(
             positionId,
             p.owner,
-            int256(0), // pnl intentionally not emitted under encrypted-equity settlement
             payoutNet,
             p.status,
             p.settlementPrice,
@@ -86,7 +85,7 @@ abstract contract EndexSettlement is EndexBase {
     /// @dev Encrypted equity (X18), clamped to zero. Includes **exit impact** at settlement.
     /// equityX18 = max(0, collateral*1e18 + gainsX18 - lossesX18)
     function _encEquityOnlyX18(
-        IEndex.Position storage p,
+        Position storage p,
         uint256 price
     ) internal returns (euint256) {
         (euint256 pnlGainX18, euint256 pnlLossX18) = _encPnlBucketsX18(p, price);
@@ -117,7 +116,7 @@ abstract contract EndexSettlement is EndexBase {
 
     /// @dev Price PnL buckets (non-negative), X18-scaled: routes magnitude to gain or loss.
     function _encPnlBucketsX18(
-        IEndex.Position storage p,
+        Position storage p,
         uint256 price
     ) internal override returns (euint256 gainX18, euint256 lossX18) {
         // ratioX18 = 1e18 * P / E  (plaintext for sign; encrypted magnitude below)
@@ -140,7 +139,7 @@ abstract contract EndexSettlement is EndexBase {
 
     /// @dev Funding buckets (non-negative), X18-scaled: routes magnitude to gain or loss.
     function _encFundingBucketsX18(
-        IEndex.Position storage p
+        Position storage p
     ) internal override returns (euint256 gainX18, euint256 lossX18) {
         // dF = currentCum - entryFunding (encrypted signed)
         eint256 memory cur = p.isLong ? cumFundingLongX18 : cumFundingShortX18;

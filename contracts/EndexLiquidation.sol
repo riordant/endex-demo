@@ -6,17 +6,14 @@ import "./EndexBase.sol";
 abstract contract EndexLiquidation is EndexBase {
     using FHEHelpers for *;
 
-    // ===============================
-    // LIQUIDATION
-    // ===============================
     function requestLiqChecks(uint256[] calldata positionIds) external {
         // Keep funding fresh for equity calc
         _pokeFunding();
         uint256 price = _markPrice();
 
         for (uint256 i = 0; i < positionIds.length; i++) {
-            IEndex.Position storage p = positions[positionIds[i]];
-            if (p.status != IEndex.Status.Open) continue;
+            Position storage p = positions[positionIds[i]];
+            if (p.status != Status.Open) continue;
 
             // required = size * MAINT_MARGIN_BPS * 1e14 (BPS -> X18)
             console.log("calc encReqX18..");
@@ -44,9 +41,9 @@ abstract contract EndexLiquidation is EndexBase {
     function finalizeLiqChecks(uint256[] calldata positionIds) external {
             console.log("in finalize liq checks..");
         for (uint256 i = 0; i < positionIds.length; i++) {
-            IEndex.Position storage p = positions[positionIds[i]];
+            Position storage p = positions[positionIds[i]];
             console.log("checking pos id..");
-            if (!p.liqCheckPending || p.status != IEndex.Status.Open) continue;
+            if (!p.liqCheckPending || p.status != Status.Open) continue;
             
             console.log("getting pending flag..");
             (uint256 flag, bool ready) = FHE.getDecryptResultSafe(p.pendingLiqFlagEnc);
@@ -57,8 +54,8 @@ abstract contract EndexLiquidation is EndexBase {
             console.log("check flag..");
             if (flag == 1) {
                 console.log("set up settlement..");
-                p.cause = IEndex.CloseCause.Liquidation;
-                _setupSettlement(p, p.pendingLiqCheckPrice);
+                p.cause = CloseCause.Liquidation;
+                _setupSettlement(positionIds[i], p.pendingLiqCheckPrice);
             }
 
             FHE.allowThis(p.pendingLiqFlagEnc);
@@ -68,7 +65,7 @@ abstract contract EndexLiquidation is EndexBase {
     /// @dev Build LHS/RHS (X18) for encrypted liquidation compare without negative ciphertexts.
     /// Uses only entry impact (exit impact is not included during liquidation checks).
     function _encEquityOperandsForLiqX18(
-        IEndex.Position storage p,
+        Position storage p,
         uint256 price,
         euint256 encRequiredX18
     ) internal returns (euint256 lhsX18, euint256 rhsX18) {

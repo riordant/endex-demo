@@ -7,7 +7,6 @@ abstract contract EndexTrading is EndexBase {
     using FHEHelpers for *;
     using SafeERC20 for IERC20;
 
-    // ---------- Events ----------
     event PositionOpened(
         uint256 indexed positionId,
         address indexed owner,
@@ -58,7 +57,7 @@ abstract contract EndexTrading is EndexBase {
         // Snapshot entry funding (encrypted signed)
         eint256 memory entryFunding = isLong ? cumFundingLongX18 : cumFundingShortX18;
 
-        positions[id] = IEndex.Position({
+        positions[id] = Position({
             owner: msg.sender,
             positionId: id,
             isLong: isLong,
@@ -66,8 +65,8 @@ abstract contract EndexTrading is EndexBase {
             collateral: collateral,
             entryPrice: uint256(price),
             settlementPrice: 0,
-            status: IEndex.Status.Open,
-            cause: IEndex.CloseCause.UserClose, // default
+            status: Status.Open,
+            cause: CloseCause.UserClose, // default
             entryFundingX18: entryFunding,
             pendingLiqFlagEnc: FHEHelpers._zero(),
             pendingLiqCheckPrice: 0,
@@ -77,7 +76,7 @@ abstract contract EndexTrading is EndexBase {
             pendingEquityX18: FHEHelpers._zero()
         });
 
-        IEndex.Position storage p = positions[id];
+        Position storage p = positions[id];
 
         // Update encrypted OI aggregates (AFTER recording entry impact based on pre-trade OI)
         if (isLong) {
@@ -120,23 +119,23 @@ abstract contract EndexTrading is EndexBase {
     }
 
     function closePosition(uint256 positionId) external {
-        IEndex.Position storage p = positions[positionId];
+        Position storage p = positions[positionId];
         require(p.owner == msg.sender, "not owner");
-        require(p.status == IEndex.Status.Open, "not open");
-        p.cause = IEndex.CloseCause.UserClose;
-        _setupSettlement(p, _markPrice());
+        require(p.status == Status.Open, "not open");
+        p.cause = CloseCause.UserClose;
+        _setupSettlement(positionId, _markPrice());
     }
 
     function settlePositions(uint256[] calldata positionIds) external {
         for (uint256 i = 0; i < positionIds.length; i++) {
             uint256 id = positionIds[i];
-            IEndex.Position storage p = positions[id];
-            if (p.status != IEndex.Status.AwaitingSettlement) continue;
+            Position storage p = positions[id];
+            if (p.status != Status.AwaitingSettlement) continue;
             _settle(id);
         }
     }
 
-    function getPosition(uint256 positionId) external view returns (IEndex.Position memory) {
+    function getPosition(uint256 positionId) external view returns (Position memory) {
         return positions[positionId];
     }
 }

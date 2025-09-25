@@ -13,6 +13,9 @@ abstract contract EndexView is EndexBase {
     uint256 public constant FUNDING_PUBLISH_INTERVAL = 10 minutes;
     uint256 public constant IMPACT_PUBLISH_INTERVAL  = 10 minutes;
 
+    event ImpactGridRequested(uint32[] sizesUsd, uint256 oraclePriceE8, uint256 timestamp);
+    event ImpactGridUpdated(uint32[] sizesUsd, int32[] longBps, int32[] shortBps, uint256 oraclePriceE8, uint256 timestamp);
+
     // Funding rounding: 0.1 bp / hour => step per second in X18
     // 0.1 bp/hr = 1e-5 per hour; per second = 1e-5 / 3600
     // stepX18 = 1e18 * 1e-5 / 3600 = 1e18 / 360_000_000 ≈ 2_777_777_777
@@ -30,6 +33,56 @@ abstract contract EndexView is EndexBase {
     bool     private _fundingPending;
     euint256 private _fundingMagRoundedEnc;
     euint256 private _fundingSign01Enc;
+
+    // Impact Grid (rounded bps public)
+    uint256 public lastImpactPublishAt;
+
+    uint32[] public lastGridSizesUsd;      // e.g. [1_000, 5_000, 10_000] (whole USD)
+    int32[]  public lastGridLongImpactBps; // signed bps (+penalty / -rebate)
+    int32[]  public lastGridShortImpactBps;
+
+    // Pending buffers for decrypt
+    bool     private _gridPending;
+    uint32[] private _gridSizesStaged;
+    uint256  private _gridOraclePriceE8;
+
+    euint256[] private _gridLongBpsAbsEnc;
+    euint256[] private _gridLongSign01Enc;
+    euint256[] private _gridShortBpsAbsEnc;
+    euint256[] private _gridShortSign01Enc;
+
+
+    // Per-request encrypted impact
+    uint256 public constant IMPACT_REQUEST_COOLDOWN = 60; // seconds per user
+
+    struct PendingImpact {
+        euint256 bpsAbsEnc;
+        euint256 sign01Enc;
+        uint32   sizeUsd;
+        bool     isLong;
+        uint256  oraclePriceE8;
+        uint256  requestedAt;
+        bool     active;
+    }
+    mapping(address => PendingImpact) private _pendingImpact;
+
+
+    struct Net {
+        euint256 gainX18;
+        euint256 lossX18;
+    } 
+
+    struct PendingEquity {
+        Net pnl;
+        Net funding;
+        Net entryImpact;
+        Net exitImpact;
+        euint256 closeFee;
+        euint256 equityNet;
+    }
+
+    mapping(address => mapping(uint256 => PendingEquity)) public pendingEquity;
+
 
     event FundingRateRequested(uint256 timestamp);
     event FundingRateUpdated(int256 ratePerSecRoundedX18, uint256 timestamp);
@@ -83,26 +136,6 @@ abstract contract EndexView is EndexBase {
         emit FundingRateUpdated(signed, block.timestamp);
         return signed;
     }
-
-    // ========= Impact Grid (rounded bps public) =========
-    uint256 public lastImpactPublishAt;
-
-    uint32[] public lastGridSizesUsd;      // e.g. [1_000, 5_000, 10_000] (whole USD)
-    int32[]  public lastGridLongImpactBps; // signed bps (+penalty / -rebate)
-    int32[]  public lastGridShortImpactBps;
-
-    // Pending buffers for decrypt
-    bool     private _gridPending;
-    uint32[] private _gridSizesStaged;
-    uint256  private _gridOraclePriceE8;
-
-    euint256[] private _gridLongBpsAbsEnc;
-    euint256[] private _gridLongSign01Enc;
-    euint256[] private _gridShortBpsAbsEnc;
-    euint256[] private _gridShortSign01Enc;
-
-    event ImpactGridRequested(uint32[] sizesUsd, uint256 oraclePriceE8, uint256 timestamp);
-    event ImpactGridUpdated(uint32[] sizesUsd, int32[] longBps, int32[] shortBps, uint256 oraclePriceE8, uint256 timestamp);
 
     /// @notice Step 1: compute encrypted, **rounded bps** for each size and request decrypt (cadence-gated).
     function requestImpactGrid(uint32[] calldata sizesUsd) public {
@@ -191,20 +224,6 @@ abstract contract EndexView is EndexBase {
         emit ImpactGridUpdated(_gridSizesStaged, longBps, shortBps, _gridOraclePriceE8, block.timestamp);
     }
 
-    // ========= Per-request encrypted impact (Option B) =========
-    uint256 public constant IMPACT_REQUEST_COOLDOWN = 60; // seconds per user
-
-    struct PendingImpact {
-        euint256 bpsAbsEnc;
-        euint256 sign01Enc;
-        uint32   sizeUsd;
-        bool     isLong;
-        uint256  oraclePriceE8;
-        uint256  requestedAt;
-        bool     active;
-    }
-    mapping(address => PendingImpact) private _pendingImpact;
-
     event ImpactRequested(address indexed user, bool isLong, uint32 sizeUsd, uint256 oraclePriceE8, uint256 timestamp);
     event ImpactReady(address indexed user, bool isLong, uint32 sizeUsd, int32 impactBps, uint256 oraclePriceE8, uint256 timestamp);
 
@@ -283,31 +302,24 @@ abstract contract EndexView is EndexBase {
         return FHE.select(lossGE, FHE.asEuint256(1), FHE.asEuint256(0));
     }
 
-    struct Net {
-        euint256 gainX18;
-        euint256 lossX18;
-    } 
-
-    struct PendingEquity {
-        Net pnl;
-        Net funding;
-        Net entryImpact;
-        Net exitImpact;
-        euint256 closeFee;
-        euint256 equityNet;
-    }
-
-    mapping(address => mapping(uint256 => PendingEquity)) public pendingEquity;
-
     function ownerEquity(
         uint256 positionId,
         uint256 price
     ) external {
-        IEndex.Position storage p = positions[positionId];
+        Position storage p = positions[positionId];
         require(p.owner == msg.sender, "Not owner");
-        require(p.status == IEndex.Status.Open, "position not open");
+        require(p.status == Status.Open, "position not open");
 
         _pokeFunding(); // update the funding rate
+
+        _ownerEquity(positionId, price);
+    }
+
+    function _ownerEquity(
+        uint256 positionId,
+        uint256 price
+    ) internal override {
+        Position storage p = positions[positionId];
 
         Net memory pnl;
         Net memory funding;
@@ -331,9 +343,9 @@ abstract contract EndexView is EndexBase {
             equityNet: equityNet
         });
 
-        _allowEquity(positionId);
+        _allowEquity(positionId, p.owner);
     }
-    
+
     function _calcNetEquity(
         Net memory pnl, 
         Net memory funding,
@@ -370,24 +382,24 @@ abstract contract EndexView is EndexBase {
         closeFee = FHE.div(closeFeeNumerator, FHE.asEuint256(BPS_DIVISOR));
     }
 
-    function _allowEquity(uint256 positionId) private {
-        PendingEquity storage equity = pendingEquity[msg.sender][positionId];
-        _allowNet(equity.pnl);
-        _allowNet(equity.funding);
-        _allowNet(equity.entryImpact);
-        _allowNet(equity.exitImpact);
-        _allowWithSender(equity.closeFee);
-        _allowWithSender(equity.equityNet);
+    function _allowEquity(uint256 positionId, address owner) private {
+        PendingEquity storage equity = pendingEquity[owner][positionId];
+        _allowNet(equity.pnl, owner);
+        _allowNet(equity.funding, owner);
+        _allowNet(equity.entryImpact, owner);
+        _allowNet(equity.exitImpact, owner);
+        _allowWithSender(equity.closeFee, owner);
+        _allowWithSender(equity.equityNet, owner);
     }
 
-    function _allowNet(Net storage net) private {
-        _allowWithSender(net.gainX18);
-        _allowWithSender(net.lossX18);
+    function _allowNet(Net storage net, address owner) private {
+        _allowWithSender(net.gainX18, owner);
+        _allowWithSender(net.lossX18, owner);
     }
 
-    function _allowWithSender(euint256 val) private {
+    function _allowWithSender(euint256 val, address owner) private {
         FHE.allowThis(val);
-        FHE.allowSender(val);
+        FHE.allow(val, owner);
     }
 
     function _markPrice() internal view override returns (uint256) {

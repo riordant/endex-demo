@@ -5,9 +5,7 @@ import "./EndexBase.sol";
 
 abstract contract EndexFunding is EndexBase {
     using FHEHelpers for *;
-    // ===============================
-    // FUNDING
-    // ===============================
+
     /// @notice Accrue cumulative funding using current fundingRatePerSecX18.
     function _pokeFunding() internal override {
         uint256 nowTs = block.timestamp;
