@@ -2,17 +2,9 @@
 pragma solidity ^0.8.25;
 
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {eint256} from "../libs/FHEHelpers.sol";
 
 interface IEndex {
-    // ---------- Encrypted signed integer ----------
-
-    struct eint256 {
-        // sign = true  => non-negative
-        // sign = false => negative
-        ebool    sign;
-        euint256 val;   // magnitude >= 0 (X18 where noted)
-    }
-
     // ---------- Enums ----------
 
     enum Status {
@@ -81,6 +73,9 @@ interface IEndex {
         uint256 closePrice,  // settlementPrice used
         uint256 feePaid
     );
+
+    event LpDeposit(address indexed lp, uint256 amount, uint256 sharesMinted);
+    event LpWithdraw(address indexed lp, uint256 shares, uint256 amountReturned);
 
     // ---------- Trading API ----------
     function openPosition(

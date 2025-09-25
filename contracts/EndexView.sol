@@ -34,11 +34,6 @@ abstract contract EndexView is EndexBase {
     event FundingRateRequested(uint256 timestamp);
     event FundingRateUpdated(int256 ratePerSecRoundedX18, uint256 timestamp);
 
-
-    constructor(IERC20 _usdc, IAggregatorV3 _feed)
-        EndexBase(_usdc, _feed)
-    {}
-
     /// @notice Step 1: stage encrypted rounding of the funding rate and request decrypt (cadence-gated).
     function requestFundingRatePublish() public {
         uint256 nowTs = block.timestamp;
@@ -288,18 +283,116 @@ abstract contract EndexView is EndexBase {
         return FHE.select(lossGE, FHE.asEuint256(1), FHE.asEuint256(0));
     }
 
-    function ownerEquity(uint256 positionId) external {
-        // only position owner may call
-        Position storage p = positions[positionId];
+    struct Net {
+        euint256 gainX18;
+        euint256 lossX18;
+    } 
+
+    struct PendingEquity {
+        Net pnl;
+        Net funding;
+        Net entryImpact;
+        Net exitImpact;
+        euint256 closeFee;
+        euint256 equityNet;
+    }
+
+    mapping(address => mapping(uint256 => PendingEquity)) public pendingEquity;
+
+    function ownerEquity(
+        uint256 positionId,
+        uint256 price
+    ) external {
+        IEndex.Position storage p = positions[positionId];
         require(p.owner == msg.sender, "Not owner");
-        require(p.status == Status.Open, "position not open");
+        require(p.status == IEndex.Status.Open, "position not open");
 
         _pokeFunding(); // update the funding rate
 
-        p.pendingEquityX18 = _encEquityOnlyX18(p, _markPrice());
+        Net memory pnl;
+        Net memory funding;
+        Net memory entryImpact;
+        Net memory exitImpact;
 
-        // only owner may read offchain
-        FHE.allowSender(p.pendingEquityX18);
-        FHE.allowThis(p.pendingEquityX18);
+        (pnl.gainX18, pnl.lossX18) = _encPnlBucketsX18(p, price);
+        (funding.gainX18, funding.lossX18)  = _encFundingBucketsX18(p);
+        entryImpact = Net(p.encImpactEntryGainX18, p.encImpactEntryLossX18);
+        (exitImpact.gainX18, exitImpact.lossX18) = _encImpactExitBucketsAtCloseX18(p, price);
+        euint256 equityNet = _calcNetEquity(pnl, funding, entryImpact, exitImpact, p.collateral);
+        // technically not part of net, calculating and including here for optics
+        euint256 closeFee = _calcCloseFee(equityNet);
+
+        pendingEquity[msg.sender][positionId] = PendingEquity({
+            pnl: pnl,
+            funding: funding,
+            entryImpact: entryImpact,
+            exitImpact: exitImpact,
+            closeFee: closeFee,
+            equityNet: equityNet
+        });
+
+        _allowEquity(positionId);
+    }
+    
+    function _calcNetEquity(
+        Net memory pnl, 
+        Net memory funding,
+        Net memory entryImpact,
+        Net memory exitImpact,
+        uint256 collateral
+    ) private returns(euint256 equityNet) {
+        euint256 gainX18  = FHE.add(pnl.gainX18, funding.gainX18);
+        gainX18           = FHE.add(gainX18,  entryImpact.gainX18);
+        gainX18           = FHE.add(gainX18,  exitImpact.gainX18);
+
+        euint256 lossX18  = FHE.add(pnl.lossX18, funding.lossX18);
+        lossX18           = FHE.add(lossX18,  entryImpact.lossX18);
+        lossX18           = FHE.add(lossX18,  exitImpact.lossX18);
+
+        euint256 collX18   = FHE.asEuint256(collateral * ONE_X18);
+        euint256 lhs       = FHE.add(collX18, gainX18);
+
+        // equity = max(0, lhs - losses)
+        ebool insolvent    = FHE.lt(lhs, lossX18);
+        euint256 diff      = FHE.sub(FHE.select(insolvent, lossX18, lhs),
+                                     FHE.select(insolvent, lhs,     lossX18));
+        // if insolvent => 0; else => diff
+        equityNet = FHE.select(insolvent, FHE.asEuint256(0), diff);
+    }
+
+    function _calcCloseFee(
+        euint256 equityNet
+    ) private returns(euint256 closeFee) {
+        // Close fee on payout
+        // closeFee = (payoutGross * CLOSE_FEE_BPS) / BPS_DIVISOR
+        euint256 payoutGross = FHE.div(equityNet, FHE.asEuint256(ONE_X18));
+        euint256 closeFeeNumerator = FHE.mul(payoutGross, FHE.asEuint256(CLOSE_FEE_BPS));
+        closeFee = FHE.div(closeFeeNumerator, FHE.asEuint256(BPS_DIVISOR));
+    }
+
+    function _allowEquity(uint256 positionId) private {
+        PendingEquity storage equity = pendingEquity[msg.sender][positionId];
+        _allowNet(equity.pnl);
+        _allowNet(equity.funding);
+        _allowNet(equity.entryImpact);
+        _allowNet(equity.exitImpact);
+        _allowWithSender(equity.closeFee);
+        _allowWithSender(equity.equityNet);
+    }
+
+    function _allowNet(Net storage net) private {
+        _allowWithSender(net.gainX18);
+        _allowWithSender(net.lossX18);
+    }
+
+    function _allowWithSender(euint256 val) private {
+        FHE.allowThis(val);
+        FHE.allowSender(val);
+    }
+
+    function _markPrice() internal view override returns (uint256) {
+        (, int256 price,, ,) = ethUsdFeed.latestRoundData();
+        require(price > 0, "price");
+        return uint256(price);
     }
 }

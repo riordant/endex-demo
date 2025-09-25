@@ -73,7 +73,7 @@ describe('Endex — Funding Fees', function () {
 
   beforeEach(function () {
     if (!hre.cofhe.isPermittedEnvironment('MOCK')) this.skip()
-    //hre.cofhe.mocks.enableLogs()
+    hre.cofhe.mocks.enableLogs()
   })
 
   // -------------------------------
@@ -383,9 +383,7 @@ describe('Endex — Funding Fees', function () {
     await perps.connect(longUser).openPosition(
       true, // isLong
       L_enc,
-      L_coll,
-      0, // stopLoss (plaintext for now)
-      0  // takeProfit (plaintext for now)
+      L_coll
     )
 
     // Open SHORT (smaller notional)
@@ -398,9 +396,7 @@ describe('Endex — Funding Fees', function () {
     await perps.connect(shortUser).openPosition(
       false, // isLong
       S_enc,
-      S_coll,
-      0,
-      0
+      S_coll
     )
 
     // === Funding from skew (async request → commit) ===

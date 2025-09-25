@@ -80,7 +80,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
   beforeEach(function () {
     if (!hre.cofhe.isPermittedEnvironment('MOCK')) this.skip()
-    //hre.cofhe.mocks.enableLogs()
+    hre.cofhe.mocks.enableLogs()
   })
 
   it("Round-trip neutrality (same K): open and immediately close at same price", async function () {

@@ -20,7 +20,7 @@ import { AGGREGATOR_ABI, coprocessor, ENDEX_ABI, sleep } from "../utils";
 task("liquidation-keeper", "Listen to price updates and run liq+settlement")
   .addOptionalParam("endex", "Endex address (env: ENDEX)")
   .addOptionalParam("aggregator", "MockV3Aggregator address (env: AGGREGATOR)")
-  .addOptionalParam("privateKey", "Local private key (env: LOCAL_PRIVATE_KEY)")
+  .addOptionalParam("privateKey", "Local private key (env: LOCAL_PRIVATE_KEY_LIQUIDATOR)")
   .addOptionalParam("flagWaitMs", "Wait after requestLiqChecks (ms)", "10000")
   .addOptionalParam("settleWaitMs", "Wait after finalizeLiqChecks (ms)", "10000")
   .setAction(async (args: any, hre: HardhatRuntimeEnvironment) => {
@@ -31,7 +31,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
     const aggregatorAddr = args.aggregator || process.env.AGGREGATOR || "";
     const flagWaitMs     = Number(args.flagWaitMs ?? process.env.FLAG_WAIT_MS ?? 10_000);
     const settleWaitMs   = Number(args.settleWaitMs ?? process.env.SETTLE_WAIT_MS ?? 10_000);
-    const pk             = args.privateKey || process.env.LOCAL_PRIVATE_KEY || "";
+    const pk             = args.privateKey || process.env.LOCAL_PRIVATE_KEY_LIQUIDATOR || "";
 
     if (!endexAddr || !aggregatorAddr) {
       console.error(
@@ -109,7 +109,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
 
         let shouldSettle = true;
         if (openIds.length > 0) {
-          const tx1 = await endex.requestLiqChecks(openIds);
+          const tx1 = await endex.requestLiqChecks(openIds, {gas: 30000000});
           console.log(`requestLiqChecks tx=${tx1.hash}`);
           await tx1.wait();
           await sleep(300);
@@ -117,7 +117,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
           console.log(`waiting FLAG_WAIT_MS=${flagWaitMs}ms for liq flag decrypt…`);
           await sleep(flagWaitMs);
 
-          const tx2 = await endex.finalizeLiqChecks(openIds);
+          const tx2 = await endex.finalizeLiqChecks(openIds, {gas: 30000000});
           console.log(`finalizeLiqChecks tx=${tx2.hash}`);
           await tx2.wait();
           await sleep(300);
@@ -138,7 +138,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
               let pending = true;
               while(pending) {
                   try {
-                    const tx3 = await endex.settlePositions(awaiting);
+                    const tx3 = await endex.settlePositions(awaiting, {gas: 30000000});
                     console.log(`settlePositions tx=${tx3.hash}`);
                     await tx3.wait();
                     await sleep(300);
@@ -192,7 +192,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
           console.log(`Detected ${logs.length} AnswerUpdated log(s) in blocks ${from}..${to}`);
           await cycle(`AnswerUpdated x${logs.length}`);
         } else {
-            console.log("no logs found.");
+            //console.log("Liquidator: no logs found.");
         }
       } catch (e: any) {
         console.error("block poll error:", e?.message || e);

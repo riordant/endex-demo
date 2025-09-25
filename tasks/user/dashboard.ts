@@ -7,23 +7,24 @@ import { cofhejs, FheTypes } from "cofhejs/node";
 import {
   getDeployment,
   clearScreen,
-  fmtUSD6,
-  parseStatus,
-  parseCloseCause,
   AGGREGATOR_ABI,
   coprocessor,
-  fmtPnl,
+  sleep,
 } from "../utils";
 
-task("user-dashboard", "GMX-style user dashboard with batched owner-equity refresh")
+import { drawPositionsTable } from "./ui/positionsTable";
+import { drawEquityTable } from "./ui/equityTable";
+
+task("user-dashboard", "GMX-style user dashboard with batched owner-equity refresh + equity breakdown")
   .addOptionalParam("endex", "Override Endex address")
   .addOptionalParam("aggregator", "Override AggregatorV3 address")
   .addOptionalParam("refreshMs", "Screen refresh interval (ms), default 10000")
   .addOptionalParam("equityRefreshMs", "How often to trigger ownerEquity batch (ms), default 7000")
   .addOptionalParam("equityCooldownMs", "Min gap between ownerEquity batches (ms), default 5000")
   .setAction(async (args: any, hre: HardhatRuntimeEnvironment) => {
-    console.log("loading..");
     const { ethers, network } = hre;
+
+    console.log("loading..");
 
     // ---- Signer + CoFHE init ----
     const [signer] = await ethers.getSigners();
@@ -45,20 +46,12 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
 
     // ---- Helpers ----
     const toNumE8 = (x: bigint) => Number(x) / 1e8;
-    const usd = (x: number, d = 2) =>
-      x.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
-    const div1e18 = (x: bigint) => BigInt(x / BigInt(1e18));
-    const col = (s: string, w: number) => {
-      s = String(s);
-      return s.length >= w ? s.slice(0, w) : s + " ".repeat(w - s.length);
-    };
 
     // ---- State ----
     let knownIds: bigint[] = [];
     let lastBatchAt = 0;
     let batching = false;
 
-    // Discover user-owned positions
     async function listOwnedIds(): Promise<bigint[]> {
       const out: bigint[] = [];
       let nextId: bigint = 1n;
@@ -72,7 +65,7 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
       return out;
     }
 
-    // -------- BACKGROUND: batched equity refresh --------
+    // -------- BACKGROUND: batched ownerEquity(positionId, oraclePriceE8) --------
     async function refreshEquityBatch() {
       if (batching) return;
       const now = Date.now();
@@ -83,21 +76,25 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         knownIds = await listOwnedIds();
         if (!knownIds.length) return;
 
-        // Stage equity for all positions in parallel
-        const receipts = await Promise.allSettled(
+        // fetch oracle price once
+        let priceE8 = 0n;
+        try {
+          const rd = await aggregator.latestRoundData();
+          priceE8 = BigInt(rd[1]);
+        } catch {}
+
+        // Stage equity for all positions in parallel (ignore failures for non-open)
+        await Promise.allSettled(
           knownIds.map(async (id) => {
-              try {
-                const tx = await (endex as any).ownerEquity(id);
-                return tx.wait();
-              } catch {
-                  // igmore failures for closed positions
-              }
+            try {
+              const tx = await (endex as any).ownerEquity(id, priceE8);
+              await tx.wait();
+            } catch { /* ignore */ }
           })
         );
 
-        // Single coprocessor finalize for all staged equities
+        // finalize all at once
         await coprocessor();
-
         lastBatchAt = Date.now();
       } catch (e: any) {
         console.error("equity batch error:", e?.message || e);
@@ -122,11 +119,11 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
       let market = "ETH/USD";
       try { market = await (endex as any).marketName(); } catch {}
 
-      // maintenance margin bps (public)
+      // public MM bps
       let mmBps = 0;
       try { mmBps = Number(await (endex as any).MAINT_MARGIN_BPS()); } catch {}
-      const m = mmBps / 10_000;
 
+      // ensure we have ids
       if (!knownIds.length) knownIds = await listOwnedIds();
       if (!knownIds.length) {
         console.log("No positions for this user.");
@@ -134,121 +131,57 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         return;
       }
 
-      // Current mark price (oracle)
+      // mark price
       let markPx = NaN;
       try { const rd = await aggregator.latestRoundData(); markPx = toNumE8(BigInt(rd[1])); } catch {}
 
-      let netValue = BigInt(0);
+      //const pendingEquity = await (endex as any).pendingEquity(owner, id);
 
-      // Header
-      console.log(
-        col("POSITION",      28) +
-        col("SIZE",          16) +
-        col("NET VALUE",     16) +
-        col("COLLATERAL",    16) +
-        col("PNL",           16) +
-        col("ENTRY PRICE",   16) +
-        col("MARK PRICE",    16) +
-        col("LIQ. PRICE",    16) +
-        col("SETTLED PRICE", 16) +
-        col("STATUS",     28)
-      );
+      // ---- Draw Positions (top table) ----
+      await drawPositionsTable({
+        ethers,
+        endex,
+        signer,
+        knownIds,
+        market,
+        markPx,
+        mmBps,
+        // equity source: pendingEquity mapping (unsealed in the table function)
+        getPendingEquity: async (owner: string, id: bigint) => {
+          // returns raw struct from contract getter
+          return await (endex as any).pendingEquity(owner, id);
+        },
+        cofhejs,
+        FheTypes,
+      });
 
-      for (const id of knownIds) {
-        let p: any;
-        try { p = await endex.getPosition(id); } catch { continue; }
+      console.log("");
 
-        const isLong = Boolean(p.isLong);
-        const collateralUSDC6 = BigInt(p.collateral);
-        const collateral = Number(collateralUSDC6) / 1e6;
-        const entry = toNumE8(BigInt(p.entryPrice));
-
-        // SIZE (owner-decrypted)
-        let sizeUSDC6 = 0n;
-        let sizeStr = "—";
-        try {
-          const sizeDec = await cofhejs.unseal(p.size, FheTypes.Uint256);
-          if (sizeDec.success) {
-            sizeUSDC6 = BigInt(sizeDec.data);
-            sizeStr = "$" + fmtUSD6(sizeUSDC6);
-          }
-        } catch {}
-
-        // NET VALUE (sealed by ownerEquity batch → unseal pendingEquityX18)
-        let netValueStr = "—";
-        try {
-          const eqDec = await cofhejs.unseal(p.pendingEquityX18, FheTypes.Uint256);
-          if (eqDec.success) {
-            netValue = div1e18(BigInt(eqDec.data));
-            netValueStr = "$" + fmtUSD6(netValue);
-            //console.log("raw result equity:", BigInt(eqDec.data));
-            //console.log("div result equity:", netValue);
-            //console.log("format result equity:", netValueStr);
-          } else {
-              console.log("unsucessful decrypt")
-          }
-        } catch {}
-
-        let pnlStr = fmtPnl(netValue - collateralUSDC6);
-
-        // leverage display
-        let levStr = "—";
-        if (sizeUSDC6 > 0n && collateral > 0) {
-          const lev = (Number(sizeUSDC6) / 1e6) / collateral;
-          levStr = (lev >= 100 ? lev.toFixed(0) : lev.toFixed(2)) + "x";
-        }
-
-        // liq price (approx; oracle mark model; funding paid on close ⇒ no drift mid-life)
-        let liqStr = "—";
-        if (sizeUSDC6 > 0n && entry > 0 && mmBps > 0) {
-          const S = Number(sizeUSDC6) / 1e6;
-          const C = collateral;
-          const F = 0;
-          if (isLong) {
-            const term = 1 - (C - F - m * S) / S;
-            liqStr = "$" + usd(entry * term, 2);
-          } else {
-            const term = 1 + (C - F - m * S) / S;
-            liqStr = "$" + usd(entry * term, 2);
-          }
-        }
-
-        // liq price (approx; oracle mark model; funding paid on close ⇒ no drift mid-life)
-        let settledPx = 0;
-        if (p.settlementPrice > 0) {
-            settledPx = toNumE8(BigInt(p.settlementPrice));
-        }
-
-        const status = parseStatus(p.status);
-        const cause  = (status === "Closed" || status === "Liquidated") ? parseCloseCause(p.cause) : "";
-        const statusCell = status + (cause ? " / " + cause : "");
-
-        // POSITION (single line)
-        const positionCell = `${market} • ${levStr} ${isLong ? "Long" : "Short"}`;
-
-        console.log(
-          col(positionCell, 28) +
-          col(sizeStr,      16) +
-          col(netValueStr,  16) +
-          col("$" + usd(collateral, 2), 16) +
-          col(pnlStr,  16) +
-          col("$" + usd(entry, 2),     16) +
-          col(Number.isFinite(markPx) ? ("$" + usd(markPx, 2)) : "—", 16) +
-          col(liqStr,       16) +
-          col(settledPx > 0 ? ("$" + usd(settledPx, 2)) : "—", 16) +
-          col(statusCell,   28)
-        );
-      }
+      // ---- Draw Equity breakdown (second table) ----
+      await drawEquityTable({
+        ethers,
+        endex,
+        signer,
+        knownIds,
+        market,
+        getPendingEquity: async (owner: string, id: bigint) => {
+          return await (endex as any).pendingEquity(owner, id);
+        },
+        cofhejs,
+        FheTypes,
+      });
 
       const eta = Math.max(0, equityCooldownMs - (Date.now() - lastBatchAt));
-      console.log(`\nNext screen refresh in ${(refreshMs/1000)|0}s — Ctrl+C to exit  |  Equity batch ${batching ? "(running…)" : `ready in ~${eta}ms`}`);
+      console.log(
+        `\nNext screen refresh in ${(refreshMs/1000)|0}s — Ctrl+C to exit  |  Equity batch ${batching ? "(running…)" : `ready in ~${eta}ms`}`
+      );
     }
 
-    // Draw loop
+    // draw loop
     await draw();
     const drawTimer = setInterval(draw, refreshMs);
 
-    // Keep alive & graceful exit
+    // keep alive & graceful exit
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.on("keypress", (str: any, key: any) => {

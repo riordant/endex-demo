@@ -48,7 +48,7 @@ describe('Endex — Liquidation', function () {
 
   beforeEach(function () {
     if (!hre.cofhe.isPermittedEnvironment('MOCK')) this.skip()
-    //hre.cofhe.mocks.enableLogs()
+    hre.cofhe.mocks.enableLogs()
   })
 
   it('performs encrypted liquidation via request → finalize → settle', async function () {
