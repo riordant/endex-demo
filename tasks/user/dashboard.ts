@@ -9,7 +9,6 @@ import {
   clearScreen,
   AGGREGATOR_ABI,
   coprocessor,
-  sleep,
 } from "../utils";
 
 import { drawPositionsTable } from "./ui/positionsTable";
@@ -89,7 +88,7 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
             try {
               const tx = await (endex as any).ownerEquity(id, priceE8);
               await tx.wait();
-            } catch { /* ignore */ }
+            } catch {}
           })
         );
 

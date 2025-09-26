@@ -57,11 +57,10 @@ abstract contract EndexSettlement is EndexBase {
         }
 
         // Update encrypted OI aggregates (remove size)
-        if (p.isLong) {
-            encLongOI = FHE.sub(encLongOI, p.size);
-        } else {
-            encShortOI = FHE.sub(encShortOI, p.size);
-        }
+        // both values updated for privacy
+        // (isLong) ? encLongOI -= size : encShortOI -= size
+        encLongOI = FHE.sub(encLongOI, FHE.select(p.isLong, p.size, FHEHelpers._zero()));
+        encShortOI = FHE.sub(encShortOI, FHE.select(p.isLong, FHEHelpers._zero(), p.size));
 
         // After OI change, update funding rate for future accruals
         _setFundingRateFromSkew();
@@ -94,7 +93,7 @@ abstract contract EndexSettlement is EndexBase {
         // exit impact at settlement
         (euint256 exitGainX18, euint256 exitLossX18) = _encImpactExitBucketsAtCloseX18(p, price);
 
-        // include entry + exit price impact
+        // include entry impact
         euint256 gainsX18  = FHE.add(pnlGainX18, fundGainX18);
         gainsX18           = FHE.add(gainsX18,  p.encImpactEntryGainX18);
         gainsX18           = FHE.add(gainsX18,  exitGainX18);
@@ -127,14 +126,12 @@ abstract contract EndexSettlement is EndexBase {
         euint256 encMagX18 = FHE.mul(p.size, FHE.asEuint256(deltaX18));
 
         // Price move sign (plaintext, uses public prices + side)
-        bool priceGain = p.isLong ? (price >= p.entryPrice) : (price <= p.entryPrice);
-        if (priceGain) {
-            gainX18 = encMagX18;
-            lossX18 = FHEHelpers._zero();
-        } else {
-            gainX18 = FHEHelpers._zero();
-            lossX18 = encMagX18;
-        }
+        ebool priceGE = FHE.asEbool(price >= p.entryPrice);
+        ebool priceLT = FHE.asEbool(price < p.entryPrice);
+        ebool priceGain = FHE.select(p.isLong, priceGE, priceLT);
+
+        gainX18 = FHE.select(priceGain, encMagX18, FHEHelpers._zero());
+        lossX18 = FHE.select(priceGain, FHEHelpers._zero(), encMagX18);
     }
 
     /// @dev Funding buckets (non-negative), X18-scaled: routes magnitude to gain or loss.
@@ -142,7 +139,7 @@ abstract contract EndexSettlement is EndexBase {
         Position storage p
     ) internal override returns (euint256 gainX18, euint256 lossX18) {
         // dF = currentCum - entryFunding (encrypted signed)
-        eint256 memory cur = p.isLong ? cumFundingLongX18 : cumFundingShortX18;
+        eint256 memory cur = FHEHelpers._selectEint(p.isLong, cumFundingLongX18, cumFundingShortX18);
         eint256 memory dF  = FHEHelpers._encSubSigned(cur, p.entryFundingX18);
 
         // magnitude

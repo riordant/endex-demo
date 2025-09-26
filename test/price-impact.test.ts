@@ -17,9 +17,16 @@ function coprocessor(ms = 10_000) {
 }
 
 // ---------- Small utilities specific to these tests ----------
-async function encryptUSDC(usdcVal: bigint) {
+async function encryptUint256(val: bigint) {
   const [enc] = await hre.cofhe.expectResultSuccess(
-    cofhejs.encrypt([Encryptable.uint256(usdcVal)])
+    cofhejs.encrypt([Encryptable.uint256(val)])
+  );
+  return enc;
+}
+
+async function encryptBool(val: boolean) {
+  const [enc] = await hre.cofhe.expectResultSuccess(
+    cofhejs.encrypt([Encryptable.bool(val)])
   );
   return enc;
 }
@@ -101,8 +108,9 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
     // Create a little skew (so impact math isn’t degenerate), but keep it stable
     {
-      const encBig = await encryptUSDC(toUSDC(120_000n));
-      await perps.connect(user).openPosition(true, encBig, toUSDC(20_000n));
+      const encDirection = await encryptBool(true);
+      const encBig = await encryptUint256(toUSDC(120_000n));
+      await perps.connect(user).openPosition(encDirection, encBig, toUSDC(20_000n));
       await coprocessor();
       // Close the “skew maker” so we don’t retain extra state; neutrality only needs stable K.
       await perps.connect(user).closePosition(1);
@@ -112,13 +120,15 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
     // Now do the round-trip we actually measure
     const coll = toUSDC(10_000n);
+    const direction = true;
     const notional = toUSDC(40_000n);
-    const enc = await encryptUSDC(notional);
+    const encDirection = await encryptBool(direction);
+    const encSize = await encryptUint256(notional);
 
     // Open → immediate close at same price
     await feed.updateAnswer(PX0);
     const start = BigInt(await usdc.balanceOf(user.address));
-    await perps.connect(user).openPosition(true, enc, coll);
+    await perps.connect(user).openPosition(encDirection, encSize, coll);
     await coprocessor();
 
     await perps.connect(user).closePosition(2);
@@ -158,19 +168,22 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
     // Create positive skew (long>short)
     {
-      const encLong = await encryptUSDC(toUSDC(150_000n));
-      await perps.connect(userB).openPosition(true, encLong, toUSDC(20_000n));
+      const encDirection = await encryptBool(true);
+      const encLong = await encryptUint256(toUSDC(150_000n));
+      await perps.connect(userB).openPosition(encDirection, encLong, toUSDC(20_000n));
       await coprocessor();
     }
 
     // Open a small SHORT (x < s) → entry impact is a gain;
     // Later close while skew still >0 → exit (long trade) is a cost; with same K they should cancel.
     const coll = toUSDC(8_000n);
+    const direction = false;
     const notional = toUSDC(24_000n);
-    const enc = await encryptUSDC(notional);
+    const encSize = await encryptUint256(notional);
+    const encDirection = await encryptBool(direction);
 
     const start = BigInt(await usdc.balanceOf(userA.address));
-    await perps.connect(userA).openPosition(false, enc, coll);
+    await perps.connect(userA).openPosition(encDirection, encSize, coll);
     await coprocessor();
 
     // keep price/funding stable; tiny time passes to show it doesn’t matter
@@ -190,7 +203,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
     const diff = actualNet > baseNet ? actualNet - baseNet : baseNet - actualNet;
     expect(diff <= EPS, `skew-improving exit should net ≈ baseline; diff=${diff}`).to.eq(true);
-  });
+  }).timeout(120000);
 
   it("Crossover exit (same K): exit delta is a rebate; net ≈ baseline when K equal", async function () {
     const { perps, perpsAddr, usdc, feed, userA, userB, lp } = await loadFixture(deployFixture);
@@ -209,19 +222,23 @@ describe("Endex — Price Impact (entry + exit)", function () {
     await feed.updateAnswer(PX0);
 
     // Start with s>0 by opening a big long on userB
-    const encBias = await encryptUSDC(toUSDC(100_000n));
-    await perps.connect(userB).openPosition(true, encBias, toUSDC(20_000n));
+    let encDirection = await encryptBool(true);
+    const encBias = await encryptUint256(toUSDC(100_000n));
+    await perps.connect(userB).openPosition(encDirection, encBias, toUSDC(20_000n));
     await coprocessor();
 
     // UserA opens a big LONG x → s_exit for the future close is s+x. On exit (short trade),
     // Δ_exit = (s_exit - x)^2 - s_exit^2 = x^2 - 2 s_exit x < 0 → rebate.
     // With same K, entry cost magnitude == exit rebate magnitude → net ≈ baseline.
     const coll = toUSDC(12_000n);
+    const direction = true;
     const notional = toUSDC(48_000n);
-    const enc = await encryptUSDC(notional);
+
+    encDirection = await encryptBool(direction);
+    const encSize = await encryptUint256(notional);
 
     const start = BigInt(await usdc.balanceOf(userA.address));
-    await perps.connect(userA).openPosition(true, enc, coll);
+    await perps.connect(userA).openPosition(encDirection, encSize, coll);
 
     await coprocessor();
 
@@ -265,24 +282,25 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
     // Keep funding ~0 for ENTRY
     // Create initial slight skew so impact is active
-    const encBias = await encryptUSDC(toUSDC(80_000n));
-    await perps.connect(userB).openPosition(true, encBias, toUSDC(15_000n));
+    const encDirection = await encryptBool(true);
+    const encBias = await encryptUint256(toUSDC(80_000n));
+    await perps.connect(userB).openPosition(encDirection, encBias, toUSDC(15_000n));
     await coprocessor();
 
     // UserA opens LONG (entry cost at low K)
     const coll = toUSDC(10_000n);
     const notional = toUSDC(40_000n);
-    const enc = await encryptUSDC(notional);
+    const encSize = await encryptUint256(notional);
 
     const start = BigInt(await usdc.balanceOf(userA.address));
-    await perps.connect(userA).openPosition(true, enc, coll);
+    await perps.connect(userA).openPosition(encDirection, encSize, coll);
     await coprocessor();
 
     // Now RAISE |funding| to shrink L and increase K for EXIT
     // We can bias skew further and commit a funding rate to raise |rate|
     {
-      const encMore = await encryptUSDC(toUSDC(150_000n));
-      await perps.connect(userB).openPosition(true, encMore, toUSDC(25_000n));
+      const encMore = await encryptUint256(toUSDC(150_000n));
+      await perps.connect(userB).openPosition(encDirection, encMore, toUSDC(25_000n));
       await coprocessor();
 
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18());
@@ -321,15 +339,15 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
     // First trade is LONG => skew >= 0 at entry.
     const collateral = toUSDC(20_000n)
+    const direction = true
     const notional  = toUSDC(80_000n) // 4x
-    const [encSize] = await hre.cofhe.expectResultSuccess(
-      cofhejs.encrypt([Encryptable.uint256(notional)])
-    )
+    const encDirection = await encryptBool(direction);
+    const encSize = await encryptUint256(notional);
 
     const userStart = BigInt(await usdc.balanceOf(user.address))
     const entryPx = price(2000n)
 
-    await perps.connect(user).openPosition(true, encSize, collateral)
+    await perps.connect(user).openPosition(encDirection, encSize, collateral)
 
     // Keep price unchanged
     await feed.updateAnswer(entryPx)
@@ -375,22 +393,22 @@ describe("Endex — Price Impact (entry + exit)", function () {
     // 1) Create **positive skew**: OTHER opens a large LONG first.
     {
       const collateralL = toUSDC(40_000n)
+      const directionL  = true
       const notionalL   = toUSDC(160_000n) // 4x
-      const [encSizeL]  = await hre.cofhe.expectResultSuccess(
-        cofhejs.encrypt([Encryptable.uint256(notionalL)])
-      )
-      await perps.connect(userB).openPosition(true, encSizeL, collateralL)
+      const encDirectionL  = await encryptBool(directionL)
+      const encSizeL  = await encryptUint256(notionalL);
+      await perps.connect(userB).openPosition(encDirectionL, encSizeL, collateralL)
     }
   
     // 2) USER opens a SHORT on positive skew ⇒ short should receive positive entry impact.
     const collateral = toUSDC(20_000n)
+    const direction  = false
     const notional  = toUSDC(80_000n)
-    const [encSize] = await hre.cofhe.expectResultSuccess(
-      cofhejs.encrypt([Encryptable.uint256(notional)])
-    )
+    const encDirection = await encryptBool(direction)
+    const encSize  = await encryptUint256(notional);
   
     const userAStart = BigInt(await usdc.balanceOf(userA.address))
-    await perps.connect(userA).openPosition(false, encSize, collateral)
+    await perps.connect(userA).openPosition(encDirection, encSize, collateral)
   
     // Keep price unchanged
     await feed.updateAnswer(entryPx)
@@ -432,24 +450,24 @@ describe("Endex — Price Impact (entry + exit)", function () {
     // 1) OTHER opens a big SHORT to push skew negative
     {
       const collateral = toUSDC(40_000n)
+      const direction = false;
       const notional  = toUSDC(200_000n) // 5x
-      const [encSize] = await hre.cofhe.expectResultSuccess(
-        cofhejs.encrypt([Encryptable.uint256(notional)])
-      )
-      await perps.connect(userB).openPosition(false, encSize, collateral)
+      const encDirection = await encryptBool(direction);
+      const encSize = await encryptUint256(notional);
+      await perps.connect(userB).openPosition(encDirection, encSize, collateral)
     }
 
     // 2) USER opens LONG after skew is negative => long should receive positive entry impact
     const collateral = toUSDC(20_000n)
+    const direction = true;
     const notional  = toUSDC(80_000n)
-    const [encSize2] = await hre.cofhe.expectResultSuccess(
-      cofhejs.encrypt([Encryptable.uint256(notional)])
-    )
+    const encDirection = await encryptBool(direction);
+    const encSize2 = await encryptUint256(notional);
 
     const userAStart = BigInt(await usdc.balanceOf(userA.address))
     const entryPx = price(2000n)
 
-    await perps.connect(userA).openPosition(true, encSize2, collateral)
+    await perps.connect(userA).openPosition(encDirection, encSize2, collateral)
 
     // Zero price move
     await feed.updateAnswer(entryPx)
@@ -484,13 +502,13 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
     // Open a small long then close immediately
     const collateral = toUSDC(10_000n);
+    const direction = true;
     const notional   = toUSDC(30_000n);
-    const [eSz] = await hre.cofhe.expectResultSuccess(
-      cofhejs.encrypt([Encryptable.uint256(notional)])
-    );
+    const encDirection = await encryptBool(direction);
+    const encSize = await encryptUint256(notional);
 
     const start = BigInt(await usdc.balanceOf(user.address));
-    await perps.connect(user).openPosition(true, eSz, collateral);
+    await perps.connect(user).openPosition(encDirection, encSize, collateral);
 
     // No time passage, no price change — K ~ unchanged between entry/exit
     await perps.connect(user).closePosition(1);

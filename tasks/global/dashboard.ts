@@ -18,6 +18,7 @@ import {
   fmtUSD6,
   ENDEX_ABI,
   AGGREGATOR_ABI,
+  decryptBool,
 } from "../utils";
 
 /**
@@ -132,7 +133,7 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
           const p = await endex.getPosition(id) as any;
           const pos: Position = {
             id,
-            isLong: Boolean(p[2]),
+            isLong: await decryptBool(p[2]),
             status: parseStatus(p[9]),
             collateral: BigInt(p[4]),
             entryPriceE8: BigInt(p[5]),

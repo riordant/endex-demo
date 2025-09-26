@@ -100,4 +100,9 @@ library FHEHelpers {
         FHE.allowThis(a.sign);
         FHE.allowThis(a.val);
     }
+
+    function _selectEint(ebool cond, eint256 memory a, eint256 memory b) internal returns(eint256 memory r) {
+        r.sign = FHE.select(cond, a.sign, b.sign);
+        r.val = FHE.select(cond, a.val, b.val);
+    }
 }

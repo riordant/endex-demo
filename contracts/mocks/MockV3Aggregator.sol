@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
-import "hardhat/console.sol";
 
 contract MockV3Aggregator {
     int256 private _price;
@@ -18,9 +17,7 @@ contract MockV3Aggregator {
     function updateAnswer(int256 _newPrice) external {
         _price = _newPrice;
         _roundId++;
-        console.log("emitting event..");
         emit AnswerUpdated(_newPrice);
-        console.log("done..");
     }
 
     function decimals() external view returns (uint8) {

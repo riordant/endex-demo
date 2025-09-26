@@ -109,7 +109,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
 
         let shouldSettle = true;
         if (openIds.length > 0) {
-          const tx1 = await endex.requestLiqChecks(openIds, {gas: 30000000});
+          const tx1 = await endex.requestLiqChecks(openIds);
           console.log(`requestLiqChecks tx=${tx1.hash}`);
           await tx1.wait();
           await sleep(300);
@@ -117,7 +117,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
           console.log(`waiting FLAG_WAIT_MS=${flagWaitMs}ms for liq flag decrypt…`);
           await sleep(flagWaitMs);
 
-          const tx2 = await endex.finalizeLiqChecks(openIds, {gas: 30000000});
+          const tx2 = await endex.finalizeLiqChecks(openIds);
           console.log(`finalizeLiqChecks tx=${tx2.hash}`);
           await tx2.wait();
           await sleep(300);
@@ -138,7 +138,7 @@ task("liquidation-keeper", "Listen to price updates and run liq+settlement")
               let pending = true;
               while(pending) {
                   try {
-                    const tx3 = await endex.settlePositions(awaiting, {gas: 30000000});
+                    const tx3 = await endex.settlePositions(awaiting);
                     console.log(`settlePositions tx=${tx3.hash}`);
                     await tx3.wait();
                     await sleep(300);

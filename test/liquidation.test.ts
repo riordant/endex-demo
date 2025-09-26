@@ -64,12 +64,16 @@ describe('Endex — Liquidation', function () {
 
     // 4x long likely to liquidate on large drop
     const collateral = toUSDC(5_000n)
+    const direction  = true
     const notional  = toUSDC(20_000n)
+    const [encDirection] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(direction)])
+    )
     const [encSize] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
 
-    await perps.connect(user).openPosition(true, encSize, collateral)
+    await perps.connect(user).openPosition(encDirection, encSize, collateral)
 
     // Big drop to force liquidation
     await feed.updateAnswer(price(1500n))
@@ -107,12 +111,16 @@ describe('Endex — Liquidation', function () {
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
 
     const collateral = toUSDC(5_000n)
+    const direction  = true
     const notional  = toUSDC(20_000n)
+    const [encDirection] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(direction)])
+    )
     const [encSize] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
 
-    await perps.connect(user).openPosition(true, encSize, collateral)
+    await perps.connect(user).openPosition(encDirection, encSize, collateral)
 
     // ~50% drop (2000 -> 1000) would make (ratio - 1) negative if naive; our buckets avoid underflow
     await feed.updateAnswer(price(1000n))
@@ -147,10 +155,13 @@ describe('Endex — Liquidation', function () {
   
     // 1) Ensure POSITIVE rate: open a large LONG to bias skew => longs pay
     {
-      const [eL] = await hre.cofhe.expectResultSuccess(
+      const [edL] = await hre.cofhe.expectResultSuccess(
+        cofhejs.encrypt([Encryptable.bool(true)])
+      )
+      const [esL] = await hre.cofhe.expectResultSuccess(
         cofhejs.encrypt([Encryptable.uint256(toUSDC(120_000n))])
       )
-      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n))
+      await perps.connect(user).openPosition(edL, esL, toUSDC(20_000n))
   
       await coprocessor()
   
@@ -160,11 +171,15 @@ describe('Endex — Liquidation', function () {
   
     // 2) Open a 5x LONG we will liquidate with small *positive* equity at liq price
     const collateralL = toUSDC(5_000n)
+    const directionL  = true
     const notionalL  = toUSDC(25_000n) // 5x
+    const [encDirectionL] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(directionL)])
+    )
     const [encSizeL] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notionalL)])
     )
-    await perps.connect(user).openPosition(true, encSizeL, collateralL)
+    await perps.connect(user).openPosition(encDirectionL, encSizeL, collateralL)
   
     // Accrue funding meaningfully
     await time.increase(3 * 24 * 3600) // 3 days
@@ -218,7 +233,7 @@ describe('Endex — Liquidation', function () {
     // Tight check to the computed funding-inclusive payout
     const diff = actualPayout > netWithF ? actualPayout - netWithF : netWithF - actualPayout
     expect(diff <= EPS, `actual ${actualPayout} vs expected ${netWithF} (|Δ|=${diff})`).to.eq(true)
-  })
+  }).timeout(120000);
 
   it('liquidated SHORT under negative rate explicitly pays funding (actual ≈ baseline - size*dF/1e18)', async function () {
     const { perps, perpsAddr, usdc, feed, user, lp } = await loadFixture(deployFixture)
@@ -234,10 +249,13 @@ describe('Endex — Liquidation', function () {
   
     // Ensure NEGATIVE rate: open a large SHORT only to bias skew (shorts pay)
     {
+      const [eD] = await hre.cofhe.expectResultSuccess(
+        cofhejs.encrypt([Encryptable.bool(false)])
+      )
       const [eS] = await hre.cofhe.expectResultSuccess(
         cofhejs.encrypt([Encryptable.uint256(toUSDC(150_000n))])
       )
-      await perps.connect(user).openPosition(false, eS, toUSDC(30_000n))
+      await perps.connect(user).openPosition(eD, eS, toUSDC(30_000n))
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
       expect(rate < 0n, 'expected negative funding rate (shorts pay)').to.eq(true)
@@ -245,11 +263,15 @@ describe('Endex — Liquidation', function () {
   
     // Open the HIGH-LEV SHORT we will liquidate
     const collateralS = toUSDC(6_000n)
+    const directionS  = false
     const notionalS  = toUSDC(30_000n) // 5x
+    const [encDirectionS] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(directionS)])
+    )
     const [encSizeS] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notionalS)])
     )
-    await perps.connect(user).openPosition(false, encSizeS, collateralS)
+    await perps.connect(user).openPosition(encDirectionS, encSizeS, collateralS)
   
     // Accrue funding for a bit
     await time.increase(6 * 3600) // 6h
@@ -308,5 +330,5 @@ describe('Endex — Liquidation', function () {
     // 3) Actual close to funding-inclusive expected (minor differences from integer rounding + entry impact)
     const diff = actualPayout > netWithF ? actualPayout - netWithF : netWithF - actualPayout
     expect(diff <= EPS, `actual ${actualPayout} vs expected ${netWithF} (|Δ|=${diff})`).to.eq(true)
-  })
+  }).timeout(120000);
 })

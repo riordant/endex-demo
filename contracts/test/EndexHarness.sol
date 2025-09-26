@@ -22,12 +22,12 @@ contract EndexHarness is Endex {
     }
 
     function openPosition(
-        bool isLong,
+        InEbool calldata isLong_,
         InEuint256 calldata size_,
         uint256 collateral
     ) external override {
         _openPosition(
-            isLong,
+            isLong_,
             size_,
             collateral
         );

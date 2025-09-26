@@ -10,26 +10,26 @@ abstract contract EndexTrading is EndexBase {
     event PositionOpened(
         uint256 indexed positionId,
         address indexed owner,
-        bool isLong,
+        ebool isLong,
         euint256 size,
         uint256 collateral,
         uint256 entryPrice
     );
 
     function openPosition(
-        bool isLong,
+        InEbool calldata isLong_,
         InEuint256 calldata size_,
         uint256 collateral
     ) external virtual {
         _openPosition(
-            isLong,
+            isLong_,
             size_,
             collateral
         );
     }
 
     function _openPosition(
-        bool isLong,
+        InEbool calldata isLong_,
         InEuint256 calldata size_,
         uint256 collateral
     ) internal {
@@ -43,6 +43,7 @@ abstract contract EndexTrading is EndexBase {
 
         // Clamp encrypted requested size to [MIN_NOTIONAL_USDC, collateral * MAX_LEVERAGE_X]
         euint256 size = _clampEncryptedSize(size_, collateral);
+        ebool isLong = FHE.asEbool(isLong_);
 
         // Pull collateral
         usdc.safeTransferFrom(msg.sender, address(this), collateral);
@@ -55,7 +56,7 @@ abstract contract EndexTrading is EndexBase {
             _encImpactEntryBucketsAtOpenX18(isLong, size, uint256(price));
 
         // Snapshot entry funding (encrypted signed)
-        eint256 memory entryFunding = isLong ? cumFundingLongX18 : cumFundingShortX18;
+        eint256 memory entryFunding = FHEHelpers._selectEint(isLong, cumFundingLongX18, cumFundingShortX18);
 
         positions[id] = Position({
             owner: msg.sender,
@@ -78,25 +79,28 @@ abstract contract EndexTrading is EndexBase {
 
         Position storage p = positions[id];
 
+
         // Update encrypted OI aggregates (AFTER recording entry impact based on pre-trade OI)
-        if (isLong) {
-            encLongOI = FHE.add(encLongOI, size);
-        } else {
-            encShortOI = FHE.add(encShortOI, size);
-        }
+        // both values updated for privacy
+        // (isLong) ? encLongOI += size : encShortOI += size
+        encLongOI = FHE.add(encLongOI, FHE.select(isLong, size, FHEHelpers._zero()));
+        encShortOI = FHE.add(encShortOI, FHE.select(isLong, FHEHelpers._zero(), size));
 
         // Update funding rate for future accruals
         _setFundingRateFromSkew();
 
         // Permissions for ciphertexts
         FHE.allowSender(p.size);
+        FHE.allowSender(p.isLong);
         FHE.allowGlobal(p.pendingLiqFlagEnc);
 
         FHE.allowThis(p.size);
+        FHE.allowThis(p.isLong);
         FHE.allowThis(p.pendingLiqFlagEnc);
         FHE.allowThis(p.encImpactEntryGainX18);
         FHE.allowThis(p.encImpactEntryLossX18);
         FHE.allowThis(p.pendingEquityX18);
+        FHEHelpers._allowEint256(p.entryFundingX18);
 
         FHE.allowThis(encLongOI);
         FHE.allowThis(encShortOI);

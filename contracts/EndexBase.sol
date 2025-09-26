@@ -31,7 +31,7 @@ abstract contract EndexBase {
     struct Position {
         address owner;
         uint256 positionId;
-        bool    isLong;
+        ebool    isLong;
 
         // Core economic state
         euint256 size;            // notional in USDC (6 decimals, encrypted)
@@ -149,7 +149,7 @@ abstract contract EndexBase {
     ) internal virtual returns (euint256 gainX18, euint256 lossX18);
 
     function _encImpactEntryBucketsAtOpenX18(
-        bool isLong,
+        ebool isLong,
         euint256 encSize,
         uint256 oraclePrice
     ) internal virtual returns (euint256 gainX18, euint256 lossX18);

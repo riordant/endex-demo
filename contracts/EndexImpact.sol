@@ -8,7 +8,7 @@ abstract contract EndexImpact is EndexBase {
 
     /// @dev Entry impact buckets at open (before OI update).
     function _encImpactEntryBucketsAtOpenX18(
-        bool isLong,
+        ebool isLong,
         euint256 encSize,
         uint256 oraclePrice
     ) internal override returns (euint256 gainX18, euint256 lossX18) {
@@ -35,7 +35,8 @@ abstract contract EndexImpact is EndexBase {
         (euint256 encAbsSkew, ebool skewGEZero) = _encAbsSkewAndFlag();
 
         // Exit trade direction is opposite of position side
-        bool exitIsLong = !p.isLong;
+        //bool exitIsLong = !p.isLong;
+        ebool exitIsLong = FHE.eq(p.isLong, FHE.asEbool(false));
 
         (euint256 deltaPos, euint256 deltaNeg) =
             _encDeltaPartsForImpact(exitIsLong, skewGEZero, p.size, encAbsSkew);
@@ -68,7 +69,7 @@ abstract contract EndexImpact is EndexBase {
     /// @dev Build delta parts for entry/exit impact using non-negative buckets.
     /// deltaPos => contributes to trader loss; deltaNeg => contributes to trader gain.
     function _encDeltaPartsForImpact(
-        bool isLong,
+        ebool isLong,
         ebool skewGEZero,
         euint256 encSize,
         euint256 encAbsSkew
@@ -78,9 +79,6 @@ abstract contract EndexImpact is EndexBase {
         euint256 twoAbs   = FHE.mul(encAbsSkew, FHE.asEuint256(2));
         euint256 twoSsize = FHE.mul(twoAbs, encSize);
 
-        // Always non-negative part of (s±)^2 difference
-        euint256 alwaysPos = FHE.add(size2, twoSsize);
-
         // Magnitude of (size^2 - 2|s|size)
         ebool size2Ge = FHE.gte(size2, twoSsize);
         euint256 diff = FHE.sub(
@@ -88,22 +86,39 @@ abstract contract EndexImpact is EndexBase {
             FHE.select(size2Ge, twoSsize, size2)
         );
 
+        // Always non-negative part of (s±)^2 difference
+        euint256 alwaysPos = FHE.add(size2, twoSsize);
+
+        (deltaPos, deltaNeg) = _getDelta(isLong, skewGEZero, size2Ge, diff, alwaysPos);
+    }
+
+    function _getDelta(
+        ebool isLong, 
+        ebool skewGEZero, 
+        ebool size2Ge,
+        euint256 diff, 
+        euint256 a
+    ) private returns(euint256 deltaPos, euint256 deltaNeg) {
+        euint256 b = FHE.select(size2Ge, diff, FHEHelpers._zero());
+        euint256 c = FHE.select(size2Ge, FHEHelpers._zero(), diff);
+        euint256 O = FHEHelpers._zero();
+
         // Route to positive/negative buckets based on side & skew sign
-        if (isLong) {
-            // long: skew>=0 => alwaysPos; skew<0 => +/- diff
-            euint256 posIfGE = alwaysPos;
-            euint256 posIfLT = FHE.select(size2Ge, diff, FHEHelpers._zero());
-            euint256 negIfLT = FHE.select(size2Ge, FHEHelpers._zero(), diff);
-            deltaPos = FHE.select(skewGEZero, posIfGE, posIfLT);
-            deltaNeg = FHE.select(skewGEZero, FHEHelpers._zero(), negIfLT);
-        } else {
-            // short: skew<0 => alwaysPos; skew>=0 => +/- diff
-            euint256 posIfLT = alwaysPos;
-            euint256 posIfGE = FHE.select(size2Ge, diff, FHEHelpers._zero());
-            euint256 negIfGE = FHE.select(size2Ge, FHEHelpers._zero(), diff);
-            deltaPos = FHE.select(skewGEZero, posIfGE, posIfLT);
-            deltaNeg = FHE.select(skewGEZero, negIfGE, FHEHelpers._zero());
-        }
+        // long  (isLong ==  true): 
+        //     - skew>=0 (skewGEZero == true) => alwaysPos (a); 
+        //     - skew<0 (skewGEZero == false) => +/- diff
+        // short (isLong == false): 
+        //     - skew<0 (skewGEZero == false) => alwaysPos (a); 
+        //     - skew>=0 (skewGEZero == true) => +/- diff
+        deltaPos = FHE.select(skewGEZero, 
+            FHE.select(isLong, a, b), 
+            FHE.select(isLong, b, a)
+        );
+
+        deltaNeg = FHE.select(skewGEZero, 
+            FHE.select(isLong, O, c), 
+            FHE.select(isLong, c, O)
+        );
     }
 
     /// @dev Compute L_eff (USD, 6d) from TVL and a public utilization proxy (|rate|).

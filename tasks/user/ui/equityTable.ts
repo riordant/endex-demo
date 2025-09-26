@@ -14,7 +14,7 @@ type Deps = {
 };
 
 
-export const div1e18 = (x: any) => BigInt(x / BigInt(1e18));
+export const div1e18 = (x: bigint) => BigInt(x / BigInt(1e18));
 
 const usd = (x: number, d = 2) =>
   x.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -31,6 +31,7 @@ async function unsealUintX18(cofhejs: any, FheTypes: any, sealed: any) {
   } catch {
       return BigInt(0);
   }
+  return BigInt(0);
 }
 
 // “gain − loss” to signed $ string (from X18)

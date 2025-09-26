@@ -167,12 +167,12 @@ abstract contract EndexView is EndexBase {
             euint256 encSize  = FHE.asEuint256(sizeUSDC6);
 
             // Long open impact
-            (euint256 gL, euint256 lL) = _encImpactEntryBucketsAtOpenX18(true,  encSize, priceE8);
+            (euint256 gL, euint256 lL) = _encImpactEntryBucketsAtOpenX18(FHE.asEbool(true),  encSize, priceE8);
             _gridLongBpsAbsEnc[i]  = _impactBucketsToRoundedBpsAbsEnc(lL, gL, encSize);
             _gridLongSign01Enc[i]  = _sign01FromBuckets(lL, gL);
 
             // Short open impact
-            (euint256 gS, euint256 lS) = _encImpactEntryBucketsAtOpenX18(false, encSize, priceE8);
+            (euint256 gS, euint256 lS) = _encImpactEntryBucketsAtOpenX18(FHE.asEbool(false), encSize, priceE8);
             _gridShortBpsAbsEnc[i] = _impactBucketsToRoundedBpsAbsEnc(lS, gS, encSize);
             _gridShortSign01Enc[i] = _sign01FromBuckets(lS, gS);
 
@@ -236,7 +236,7 @@ abstract contract EndexView is EndexBase {
         uint256 sizeUSDC6 = uint256(sizeUsd) * 1e6;
         euint256 encSize  = FHE.asEuint256(sizeUSDC6);
 
-        (euint256 gainX18, euint256 lossX18) = _encImpactEntryBucketsAtOpenX18(isLong, encSize, priceE8);
+        (euint256 gainX18, euint256 lossX18) = _encImpactEntryBucketsAtOpenX18(FHE.asEbool(isLong), encSize, priceE8);
 
         P.bpsAbsEnc     = _impactBucketsToRoundedBpsAbsEnc(lossX18, gainX18, encSize);
         P.sign01Enc     = _sign01FromBuckets(lossX18, gainX18);
@@ -334,7 +334,7 @@ abstract contract EndexView is EndexBase {
         // technically not part of net, calculating and including here for optics
         euint256 closeFee = _calcCloseFee(equityNet);
 
-        pendingEquity[msg.sender][positionId] = PendingEquity({
+        pendingEquity[p.owner][positionId] = PendingEquity({
             pnl: pnl,
             funding: funding,
             entryImpact: entryImpact,
@@ -342,7 +342,7 @@ abstract contract EndexView is EndexBase {
             closeFee: closeFee,
             equityNet: equityNet
         });
-
+        
         _allowEquity(positionId, p.owner);
     }
 

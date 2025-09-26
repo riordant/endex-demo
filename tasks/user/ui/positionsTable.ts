@@ -1,6 +1,6 @@
 // tasks/user/ui/positionsTable.ts
 import { ethers as EthersNS } from "ethers";
-import { fmtUSD6, parseStatus, parseCloseCause, fmtPnl } from "../../utils";
+import { fmtUSD6, parseStatus, parseCloseCause, fmtPnl, decryptBool } from "../../utils";
 import {div1e18} from "./equityTable";
 
 type Deps = {
@@ -46,10 +46,11 @@ export async function drawPositionsTable(deps: Deps) {
     let p: any;
     try { p = await endex.getPosition(id); } catch { continue; }
 
-    const isLong = Boolean(p.isLong);
     const collateralUSDC6 = BigInt(p.collateral);
     const collateral = Number(collateralUSDC6) / 1e6;
     const entry = toNumE8(BigInt(p.entryPrice));
+
+    let isLong = await decryptBool(p.isLong);
 
     // SIZE (owner-decrypted)
     let sizeUSDC6 = 0n;

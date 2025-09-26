@@ -26,7 +26,8 @@ const config: HardhatUserConfig = {
                 auto: true,
                 interval: 10000,
             },
-          allowUnlimitedContractSize: true
+          allowUnlimitedContractSize: true,
+        blockGasLimit: 1_000_000_000 // unlimited
         },
 		// Sepolia testnet configuration
 		'eth-sepolia': {

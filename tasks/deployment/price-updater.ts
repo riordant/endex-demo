@@ -100,6 +100,8 @@ task("price-updater", "Mirror a remote Chainlink feed → local MockV3Aggregator
     async function tick() {
       try {
         let [roundId, answer, , updatedAt] = await remote.latestRoundData();
+        //answer = 189479662351;
+        //answer = 310079662351;
         const rId  = BigInt(roundId);
         const rAns = BigInt(answer);
         const rUpd = BigInt(updatedAt);

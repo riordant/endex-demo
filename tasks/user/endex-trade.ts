@@ -4,7 +4,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { cofhejs_initializeWithHardhatSigner } from "cofhe-hardhat-plugin";
-import {coprocessor, encryptUint256, fmtPriceE8, fmtUSD6, getDeployment, pad, parseUsd6} from "../utils";
+import {coprocessor, decryptBool, encryptBool, encryptUint256, fmtPriceE8, fmtUSD6, getDeployment, pad, parseUsd6} from "../utils";
 
 task("endex-trade", "Open or close a position (interactive if no args)")
   .addOptionalParam("mode", "o=open, c=close")
@@ -61,6 +61,7 @@ task("endex-trade", "Open or close a position (interactive if no args)")
 
       const sizeUSDC6 = collateralUSDC6 * BigInt(levNum);
       const sizeEnc = await encryptUint256(sizeUSDC6);
+      const directionEnc = await encryptBool(isLong);
 
       // mint & approve
       const mintTx = await usdc.mint(signer.address, collateralUSDC6);
@@ -73,7 +74,7 @@ task("endex-trade", "Open or close a position (interactive if no args)")
 
       console.log(`\nOpening: ${isLong ? "LONG" : "SHORT"}  size=$${fmtUSD6(sizeUSDC6)}  collateral=$${fmtUSD6(collateralUSDC6)} lev=${levNum}x`);
       // artifacts will have the exact InEuint256 type; most builds accept raw bytes for `size_`
-      const tx = await endex.openPosition(isLong, sizeEnc, collateralUSDC6);
+      const tx = await endex.openPosition(directionEnc, sizeEnc, collateralUSDC6);
       console.log(`→ tx: ${tx.hash}`);
       await tx.wait();
       console.log("✅ Position opened.\n");
@@ -94,7 +95,7 @@ task("endex-trade", "Open or close a position (interactive if no args)")
           if (owner.toLowerCase() === signer.address.toLowerCase() && status === 0) {
             ownedOpen.push({
               id,
-              isLong: Boolean(p.isLong),
+              isLong: await decryptBool(p.isLong),
               collateral: BigInt(p.collateral),
               entryPrice: BigInt(p.entryPrice),
             });

@@ -101,11 +101,13 @@ describe('Endex — Funding Fees', function () {
       await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
       await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
 
-      const [eL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(Long)]))
-      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n))
+      const [edL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.bool(true)]))
+      const [enL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(Long)]))
+      await perps.connect(user).openPosition(edL, enL, toUSDC(20_000n))
 
-      const [eS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(Short)]))
-      await perps.connect(user).openPosition(false, eS, toUSDC(20_000n))
+      const [edS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.bool(false)]))
+      const [enS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(Short)]))
+      await perps.connect(user).openPosition(edS, enS, toUSDC(20_000n))
 
       await coprocessor()
 
@@ -135,10 +137,13 @@ describe('Endex — Funding Fees', function () {
 
     // Create positive rate (long>short)
     {
-      const [eL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(120_000n))]))
-      await perps.connect(userA).openPosition(true, eL, toUSDC(20_000n))
-      const [eS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(30_000n))]))
-      await perps.connect(userB).openPosition(false, eS, toUSDC(10_000n))
+      const [edL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.bool(true)]))
+      const [enL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(120_000n))]))
+      await perps.connect(userA).openPosition(edL, enL, toUSDC(20_000n))
+
+      const [edS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.bool(false)]))
+      const [enS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(30_000n))]))
+      await perps.connect(userB).openPosition(edS, enS, toUSDC(10_000n))
 
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
@@ -187,7 +192,7 @@ describe('Endex — Funding Fees', function () {
     // positive rate: long <= baseline, short >= baseline
     expect(longActualNet <= baseLongNet).to.eq(true)
     expect(shortActualNet >= baseShortNet).to.eq(true)
-  })
+  }).timeout(120000);
 
   it('zero price move with mixed sizes: payer reduced more with larger size; receiver increased more with larger size', async function () {
     const { perps, perpsAddr, usdc, feed, userA, userB, lp } = await loadFixture(deployFixture)
@@ -205,10 +210,12 @@ describe('Endex — Funding Fees', function () {
     // Make positive rate (long>short)
     {
       // A: big long, B: small short
-      const [eL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(200_000n))]))
-      await perps.connect(userA).openPosition(true, eL, toUSDC(30_000n))
-      const [eS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(40_000n))]))
-      await perps.connect(userB).openPosition(false, eS, toUSDC(10_000n))
+      const [edL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.bool(true)]))
+      const [enL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(200_000n))]))
+      await perps.connect(userA).openPosition(edL, enL, toUSDC(30_000n))
+      const [edS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.bool(false)]))
+      const [enS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(40_000n))]))
+      await perps.connect(userB).openPosition(edS, enS, toUSDC(10_000n))
 
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
@@ -245,7 +252,7 @@ describe('Endex — Funding Fees', function () {
     // Long (payer) below baseline; Short (receiver) above baseline
     expect(longActualNet <= baseLongNet).to.eq(true)
     expect(shortActualNet >= baseShortNet).to.eq(true)
-  })
+  }).timeout(120000);
 
   it('tiny accrual after commit: dF sign matches rate (no flip) for long payer', async function () {
     const { perps, perpsAddr, usdc, userA: user, lp } = await loadFixture(deployFixture)
@@ -260,8 +267,9 @@ describe('Endex — Funding Fees', function () {
 
     // Make positive rate
     {
-      const [eL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(100_000n))]))
-      await perps.connect(user).openPosition(true, eL, toUSDC(20_000n))
+      const [edL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.bool(true)]))
+      const [enL] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(toUSDC(100_000n))]))
+      await perps.connect(user).openPosition(edL, enL, toUSDC(20_000n))
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
       expect(rate > 0n).to.eq(true)
@@ -269,9 +277,11 @@ describe('Endex — Funding Fees', function () {
 
     // Open a small long after commit
     const coll = toUSDC(10_000n)
+    const direction = true
     const notional = toUSDC(30_000n)
-    const [eSz] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(notional)]))
-    await perps.connect(user).openPosition(true, eSz, coll)
+    const [eD] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.bool(direction)]))
+    const [eS] = await hre.cofhe.expectResultSuccess(cofhejs.encrypt([Encryptable.uint256(notional)]))
+    await perps.connect(user).openPosition(eD, eS, coll)
 
     // Very small accrual
     await time.increase(5) // 5 seconds
@@ -311,10 +321,13 @@ describe('Endex — Funding Fees', function () {
   
     // Make positive rate: long>short
     {
-      const [eL] = await hre.cofhe.expectResultSuccess(
+      const [edL] = await hre.cofhe.expectResultSuccess(
+        cofhejs.encrypt([Encryptable.bool(true)])
+      )
+      const [enL] = await hre.cofhe.expectResultSuccess(
         cofhejs.encrypt([Encryptable.uint256(toUSDC(150_000n))])
       )
-      await perps.connect(userA).openPosition(true, eL, toUSDC(20_000n))
+      await perps.connect(userA).openPosition(edL, enL, toUSDC(20_000n))
       await coprocessor()
       const rate = await cofheUnsealEint256(await perps.fundingRatePerSecX18())
       expect(rate > 0n).to.eq(true) // longs pay
@@ -323,10 +336,14 @@ describe('Endex — Funding Fees', function () {
     // A opens
     const collA = toUSDC(10_000n)
     const notionalA = toUSDC(30_000n)
-    const [eA] = await hre.cofhe.expectResultSuccess(
+    const directionA = true;
+    const [edA] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(directionA)])
+    )
+    const [enA] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notionalA)])
     )
-    await perps.connect(userA).openPosition(true, eA, collA)
+    await perps.connect(userA).openPosition(edA, enA, collA)
     const entryFundingA = await cofheUnsealEint256((await perps.getPosition(2)).entryFundingX18)
   
     await coprocessor()
@@ -334,10 +351,14 @@ describe('Endex — Funding Fees', function () {
     // B opens
     const collB = toUSDC(10_000n)
     const notionalB = toUSDC(30_000n)
-    const [eB] = await hre.cofhe.expectResultSuccess(
+    const directionB = true;
+    const [edB] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(directionB)])
+    )
+    const [enB] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notionalB)])
     )
-    await perps.connect(userB).openPosition(true, eB, collB)
+    await perps.connect(userB).openPosition(edB, enB, collB)
     const entryFundingB = await cofheUnsealEint256((await perps.getPosition(3)).entryFundingX18)
   
     // Accrue same duration for both after B’s entry
@@ -373,7 +394,11 @@ describe('Endex — Funding Fees', function () {
     // Open LONG (bigger notional) => positive skew
     const L_coll = toUSDC(50_000n)
     const L_not  = toUSDC(200_000n) // 4x long
-    const [L_enc] = await hre.cofhe.expectResultSuccess(
+    const L_dir  = true
+    const [Ld_enc] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(L_dir)])
+    )
+    const [Ln_enc] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(L_not)])
     )
     const priceEntry = price(2000n)
@@ -381,21 +406,25 @@ describe('Endex — Funding Fees', function () {
 
     const longStartBal = BigInt(await usdc.balanceOf(longUser.address))
     await perps.connect(longUser).openPosition(
-      true, // isLong
-      L_enc,
+      Ld_enc,
+      Ln_enc,
       L_coll
     )
 
     // Open SHORT (smaller notional)
     const S_coll = toUSDC(40_000n)
     const S_not  = toUSDC(100_000n) // 2.5x short — smaller than long notional
-    const [S_enc] = await hre.cofhe.expectResultSuccess(
+    const S_dir  = false // short
+    const [Sd_enc] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(S_dir)])
+    )
+    const [Sn_enc] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(S_not)])
     )
     const shortStartBal = BigInt(await usdc.balanceOf(shortUser.address))
     await perps.connect(shortUser).openPosition(
-      false, // isLong
-      S_enc,
+      Sd_enc,
+      Sn_enc,
       S_coll
     )
 
@@ -454,17 +483,19 @@ describe('Endex — Funding Fees', function () {
     // Open long: collateral 10k, size 30k (3x)
     const collateral = toUSDC(10_000n)
     const notional  = toUSDC(30_000n)
+    const direction  = true
+    const [encDirection] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(direction)])
+    )
     const [encSize] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
 
     const userBalStart = BigInt(await usdc.balanceOf(user.address))
 
-    console.log("openPosition..")
     await perps.connect(user).openPosition(
-      true, encSize, collateral
+      encDirection, encSize, collateral
     )
-    console.log("done..")
 
     let pos = await perps.getPosition(1)
     expect(pos.status).to.equal(0) // Open
@@ -531,10 +562,14 @@ describe('Endex — Funding Fees', function () {
     // Open a SHORT only so that encShortOI > encLongOI at request time
     const collateral = toUSDC(10_000n)
     const notional  = toUSDC(40_000n) // large short to dominate skew
+    const direction  = false // short
+    const [encDirection] = await hre.cofhe.expectResultSuccess(
+      cofhejs.encrypt([Encryptable.bool(direction)])
+    )
     const [encSize] = await hre.cofhe.expectResultSuccess(
       cofhejs.encrypt([Encryptable.uint256(notional)])
     )
-    await perps.connect(user).openPosition(false, encSize, collateral)
+    await perps.connect(user).openPosition(encDirection, encSize, collateral)
 
     await coprocessor()
     

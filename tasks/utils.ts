@@ -1,4 +1,4 @@
-import {cofhejs, Encryptable, EncryptStep} from 'cofhejs/node'
+import {cofhejs, Encryptable, EncryptStep, FheTypes} from 'cofhejs/node'
 import fs from 'fs'
 import path from 'path'
 
@@ -57,7 +57,23 @@ export async function encryptUint256(val: bigint) {
   const logState = (state: EncryptStep) => console.log(`Encrypt State :: ${state}`);
   const res = await cofhejs.encrypt([Encryptable.uint256(val)] as const, logState);
   if (!res?.data?.[0]) throw new Error("Failed to encrypt (cofhejs).");
-  return res.data[0]; // bytes
+  return res.data[0];
+}
+
+
+export async function encryptBool(val: boolean) {
+  const logState = (state: EncryptStep) => console.log(`Encrypt State :: ${state}`);
+  const res = await cofhejs.encrypt([Encryptable.bool(val)] as const, logState);
+  if (!res?.data?.[0]) throw new Error("Failed to encrypt (cofhejs).");
+  return res.data[0];
+}
+
+export async function decryptBool(val: any) {
+    const isLongRaw = await cofhejs.unseal(val, FheTypes.Bool);
+    if (isLongRaw.success) {
+      return Boolean(isLongRaw.data);
+    }
+    return false;
 }
 
 // CoFHE decrypts async
