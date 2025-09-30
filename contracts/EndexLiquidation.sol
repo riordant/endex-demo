@@ -6,51 +6,31 @@ import "./EndexBase.sol";
 abstract contract EndexLiquidation is EndexBase {
     using FHEHelpers for *;
 
-    function requestLiqChecks(uint256[] calldata positionIds) external {
-        // Keep funding fresh for equity calc
-        _pokeFunding();
-        uint256 price = _markPrice();
+    function _liquidationCheck(uint256 positionId, uint256 price) internal override {
+        Position storage p = positions[positionId];
+        Validity storage v = p.validity;
 
-        for (uint256 i = 0; i < positionIds.length; i++) {
-            Position storage p = positions[positionIds[i]];
-            if (p.status != Status.Open) continue;
+        // required = size * MAINT_MARGIN_BPS * 1e14 (BPS -> X18)
+        euint256 encReqX18 = FHE.mul(p.size, FHE.asEuint256(MAINT_MARGIN_BPS * 1e14));
 
-            // required = size * MAINT_MARGIN_BPS * 1e14 (BPS -> X18)
-            euint256 encReqX18 = FHE.mul(p.size, FHE.asEuint256(MAINT_MARGIN_BPS * 1e14));
+        (euint256 lhs, euint256 rhs) = _encEquityOperandsForLiqX18(p, price, encReqX18);
 
-            (euint256 lhs, euint256 rhs) = _encEquityOperandsForLiqX18(p, price, encReqX18);
+        // needLiq = (lhs < rhs)
 
-            // needLiq = (lhs < rhs)
-            ebool needLiq = FHE.lt(lhs, rhs);
+        // 0/1 encrypted flag and request decrypt
+        v.toBeLiquidated = FHE.lt(lhs, rhs);
+        p.pendingLiquidationPrice = price;
 
-            // 0/1 encrypted flag and request decrypt
-            p.pendingLiqFlagEnc = FHE.select(needLiq, FHEHelpers._one(), FHEHelpers._zero());
-            p.pendingLiqCheckPrice = price;
-            p.liqCheckPending = true;
-            FHE.decrypt(p.pendingLiqFlagEnc);
-
-            FHE.allowThis(p.pendingLiqFlagEnc);
-            FHE.allowThis(p.size);
-        }
+        // decrypt and make toBeLiquidated available to all users
+        FHE.allowGlobal(v.toBeLiquidated);
+        FHE.decrypt(v.toBeLiquidated);
+        FHE.allowThis(p.size);
     }
 
-    function finalizeLiqChecks(uint256[] calldata positionIds) external {
-        for (uint256 i = 0; i < positionIds.length; i++) {
-            Position storage p = positions[positionIds[i]];
-            if (!p.liqCheckPending || p.status != Status.Open) continue;
-            
-            (uint256 flag, bool ready) = FHE.getDecryptResultSafe(p.pendingLiqFlagEnc);
-            if (!ready) continue;
-
-            p.liqCheckPending = false;
-
-            if (flag == 1) {
-                p.cause = CloseCause.Liquidation;
-                _setupSettlement(positionIds[i], p.pendingLiqCheckPrice);
-            }
-
-            FHE.allowThis(p.pendingLiqFlagEnc);
-        }
+    function _liquidationFinalize(uint256 positionId) internal override {
+        Position storage p = positions[positionId];
+        p.cause = CloseCause.Liquidation;
+        _setupSettlement(positionId, p.pendingLiquidationPrice);
     }
 
     /// @dev Build LHS/RHS (X18) for encrypted liquidation compare without negative ciphertexts.

@@ -14,6 +14,8 @@ abstract contract EndexBase {
 
     // ---------- Enums ----------
     enum Status {
+        Requested,
+        Pending,
         Open,
         AwaitingSettlement,
         Liquidated,
@@ -27,16 +29,33 @@ abstract contract EndexBase {
         StopLoss
     }
 
-    // ---------- Position ----------
+    // ---------- Structs ----------
+    struct Validity {
+        ebool requestValid;
+        bool removed;
+        ebool pendingDone;
+        ebool toBeLiquidated;
+    }
+
+    struct InRange {
+        InEuint256 low;
+        InEuint256 high;
+    }
+
+    struct Range {
+        euint256 low;
+        euint256 high;
+    }
+
     struct Position {
         address owner;
         uint256 positionId;
+        Validity validity;
         ebool    isLong;
-
-        // Core economic state
         euint256 size;            // notional in USDC (6 decimals, encrypted)
         uint256  collateral;      // USDC (6 decimals, plaintext)
         uint256  entryPrice;      // Chainlink price (8 decimals, plaintext)
+        Range  entryPriceRange;   // Chainlink price (8 decimals, plaintext)
 
         // Lifecycle state
         uint256  settlementPrice; // price (8 decimals) used when AwaitingSettlement
@@ -46,10 +65,7 @@ abstract contract EndexBase {
         // Funding index snapshot (X18, encrypted signed)
         eint256 entryFundingX18;
 
-        // Encrypted liquidation trigger workflow
-        euint256 pendingLiqFlagEnc; // 0/1 encrypted
-        uint256  pendingLiqCheckPrice;
-        bool     liqCheckPending;
+        uint256  pendingLiquidationPrice;
 
         // Encrypted price impact (entry-only), X18 non-negative buckets
         euint256 encImpactEntryGainX18; // trader gain from impact (encrypted, >=0)
@@ -70,6 +86,7 @@ abstract contract EndexBase {
     uint256  public constant ONE_X18          = 1e18;
     uint256  public constant MAINT_MARGIN_BPS = 100;      // 1%
     uint256  public constant MIN_NOTIONAL_USDC = 10e6;    // 10 USDC (6d)
+    uint256  public constant PRICE_RANGE_BUFFER = 1e8;           // 1 USDC (8d)
 
     // Funding rate clamp
     uint256  public constant MAX_ABS_FUNDING_RATE_PER_SEC_X18 = 1e9; // ~0.0864%/day
@@ -83,6 +100,7 @@ abstract contract EndexBase {
 
     IERC20 public immutable usdc;              // 6 decimals
     IAggregatorV3 public immutable ethUsdFeed; // 8 decimals
+    address public immutable keeper;
 
     // ===============================
     // VARIABLES
@@ -90,7 +108,8 @@ abstract contract EndexBase {
     // LP accounting
     uint256 public totalLpShares;
     mapping(address => uint256) public lpShares;
-    uint256 public usdcBalance; // pool USDC (6d)
+    uint256 public totalLiquidity; // pool USDC (6d)
+    uint256 public pendingLiquidity; // pool USDC (6d)
 
     // Positions
     uint256 public nextPositionId = 1;
@@ -111,9 +130,10 @@ abstract contract EndexBase {
     // ===============================
     // CONSTRUCTOR
     // ===============================
-    constructor(IERC20 _usdc, IAggregatorV3 _ethUsdFeed) {
+    constructor(IERC20 _usdc, IAggregatorV3 _ethUsdFeed, address _keeper) {
         usdc = _usdc;
         ethUsdFeed = _ethUsdFeed;
+        keeper = _keeper;
 
         lastFundingUpdate = block.timestamp;
 
@@ -159,9 +179,15 @@ abstract contract EndexBase {
         uint256 oraclePrice
     ) internal virtual returns (euint256 gainX18, euint256 lossX18);
 
-    function _settle(uint256 positionId) internal virtual;
+    function _settle(uint256 positionId) internal virtual returns(bool /* settled */);
 
     function _setFundingRateFromSkew() internal virtual;
 
     function _ownerEquity(uint256 positionId, uint256 price) internal virtual;
+
+    function _openPositionFinalize(Position storage p, uint256 price) internal virtual;
+
+    function _liquidationCheck(uint256 positionId, uint256 price) internal virtual;
+
+    function _liquidationFinalize(uint256 positionId) internal virtual;
 }

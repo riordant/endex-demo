@@ -22,6 +22,12 @@ library FHEHelpers {
     function _two() internal returns(euint256) {
         return FHE.asEuint256(2);
     }
+    
+    function _zeroEint256() internal returns(eint256 memory r) {
+        r.sign = FHE.asEbool(false);
+        r.val = _zero();
+
+    }
 
     // ---------- Encrypted-boolean helpers (no plain bool branching) ----------
     // r = r (+/-) (bSign ? +bVal : -bVal)
@@ -104,5 +110,10 @@ library FHEHelpers {
     function _selectEint(ebool cond, eint256 memory a, eint256 memory b) internal returns(eint256 memory r) {
         r.sign = FHE.select(cond, a.sign, b.sign);
         r.val = FHE.select(cond, a.val, b.val);
+    }
+
+    function _allowEint256_Global(eint256 storage a) internal {
+        FHE.allowGlobal(a.sign);
+        FHE.allowGlobal(a.val);
     }
 }

@@ -321,7 +321,7 @@ Funding rate:
   - Hidden: **per-position size** until settlement, **aggregate OI** (kept encrypted), per-position equity/thresholds
 - **Oracle correctness**: relies on a Chainlink-style oracle; production systems may use robust feeds with anti-wick measures
 - **Async risk**: decryption latency—tests simulate ~10s; the request/commit pattern includes an `epoch` to prevent race/replay
-- **Insolvency check**: settlement requires `payoutNet <= usdcBalance`; future versions may add insurance/reserve
+- **Insolvency check**: settlement requires `payoutNet <= totalLiquidity`; future versions may add insurance/reserve
 
 ---
 

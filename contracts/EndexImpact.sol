@@ -123,8 +123,8 @@ abstract contract EndexImpact is EndexBase {
 
     /// @dev Compute L_eff (USD, 6d) from TVL and a public utilization proxy (|rate|).
     function _impactLiquidityScaleUSD_enc() internal returns (euint256 L) {
-        // base = max(usdcBalance * FACTOR_BPS / 1e4, MIN_LIQ)
-        uint256 basePlain = (usdcBalance * IMPACT_TVL_FACTOR_BPS) / 10_000;
+        // base = max(totalLiquidity * FACTOR_BPS / 1e4, MIN_LIQ)
+        uint256 basePlain = (totalLiquidity * IMPACT_TVL_FACTOR_BPS) / 10_000;
         if (basePlain < IMPACT_MIN_LIQ_USD) basePlain = IMPACT_MIN_LIQ_USD;
         euint256 base = FHE.asEuint256(basePlain);
 

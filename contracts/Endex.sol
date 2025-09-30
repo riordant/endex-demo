@@ -4,23 +4,25 @@ pragma solidity >=0.8.25;
 import "./EndexBase.sol";
 import "./EndexFunding.sol";
 import "./EndexImpact.sol";
+import "./EndexKeeper.sol";
+import "./EndexLiquidation.sol";
 import "./EndexLP.sol";
 import "./EndexSettlement.sol";
-import "./EndexView.sol";
 import "./EndexTrading.sol";
-import "./EndexLiquidation.sol";
+import "./EndexView.sol";
 
 contract Endex is
     EndexBase,
     EndexFunding,
     EndexImpact,
+    EndexKeeper,
+    EndexLiquidation,
     EndexLP,
     EndexSettlement,
-    EndexView,
     EndexTrading,
-    EndexLiquidation
+    EndexView
 {
-    constructor(IERC20 _usdc, IAggregatorV3 _feed)
-        EndexBase(_usdc, _feed)
+    constructor(IERC20 _usdc, IAggregatorV3 _feed, address keeper)
+        EndexBase(_usdc, _feed, keeper)
     {}
 }

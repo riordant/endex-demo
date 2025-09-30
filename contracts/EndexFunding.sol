@@ -26,6 +26,8 @@ abstract contract EndexFunding is EndexBase {
     /// @dev Derive encrypted fundingRatePerSecX18 from encrypted skew and clamp |rate|.
     /// @dev Call this AFTER any change to long/short OI.
     function _setFundingRateFromSkew() internal override {
+
+        console.log("set funding rate from skew..");
         // abs skew and sign
         ebool skewGE = FHE.gte(encLongOI, encShortOI);
         euint256 encMax = FHE.select(skewGE, encLongOI, encShortOI);

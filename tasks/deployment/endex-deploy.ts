@@ -56,7 +56,7 @@ task("endex-deploy", "Deploy the Endex contract (and mocks if needed)")
 
     // --- Deploy Endex ---
     const Endex = await ethers.getContractFactory("Endex");
-    const endex = await Endex.deploy(usdcAddr, feedAddr);
+    const endex = await Endex.deploy(usdcAddr, feedAddr, feedAddr);
     await endex.waitForDeployment();
     const endexAddr = await endex.getAddress();
 

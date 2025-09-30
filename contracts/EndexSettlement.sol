@@ -6,15 +6,6 @@ import "./EndexBase.sol";
 abstract contract EndexSettlement is EndexBase {
     using SafeERC20 for IERC20;
 
-    event PositionClosed(
-        uint256 indexed positionId,
-        address indexed owner,
-        uint256 payout,      // net payout to user (after fee)
-        Status status,       // Closed or Liquidated
-        uint256 closePrice,  // settlementPrice used
-        uint256 feePaid
-    );
-
     function _setupSettlement(uint256 positionId, uint256 settlementPrice) internal override {
         Position storage p = positions[positionId];
         // Accrue funding to now
@@ -35,12 +26,12 @@ abstract contract EndexSettlement is EndexBase {
         _ownerEquity(positionId, settlementPrice);
     }
 
-    function _settle(uint256 positionId) internal override {
+    function _settle(uint256 positionId) internal override returns(bool /* settled */) {
         Position storage p = positions[positionId];
         require(p.status == Status.AwaitingSettlement, "not awaiting settlement");
 
         (uint256 eqX18, bool ready) = FHE.getDecryptResultSafe(p.pendingEquityX18);
-        require(ready, "equity not ready");
+        if(!ready) return false; // equity not ready
 
         // Gross payout in USDC (6d)
         uint256 payoutGross = eqX18 / ONE_X18;
@@ -51,8 +42,8 @@ abstract contract EndexSettlement is EndexBase {
 
         // Transfer
         if (payoutNet > 0) {
-            require(payoutNet <= usdcBalance, "pool insolvent");
-            usdcBalance -= payoutNet;
+            require(payoutNet <= totalLiquidity, "pool insolvent");
+            totalLiquidity -= payoutNet;
             usdc.safeTransfer(p.owner, payoutNet);
         }
 
@@ -65,20 +56,10 @@ abstract contract EndexSettlement is EndexBase {
         // After OI change, update funding rate for future accruals
         _setFundingRateFromSkew();
 
-        // Mark final status by cause
-        p.status = (p.cause == CloseCause.Liquidation) ? Status.Liquidated : Status.Closed;
-
-        emit PositionClosed(
-            positionId,
-            p.owner,
-            payoutNet,
-            p.status,
-            p.settlementPrice,
-            fee
-        );
-
         FHE.allowThis(encLongOI);
         FHE.allowThis(encShortOI);
+
+        return true;
     }
 
     /// @dev Encrypted equity (X18), clamped to zero. Includes **exit impact** at settlement.
