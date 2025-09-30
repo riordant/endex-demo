@@ -91,7 +91,7 @@ abstract contract EndexKeeper is EndexBase {
 
     function _returnUserFunds(Position storage p, Validity storage v) private {
         if(!v.removed) { 
-            pendingLiquidity -= p.collateral;
+            pendingCollateral -= p.collateral;
             usdc.safeTransfer(p.owner, p.collateral);
             v.removed = true;
         }

@@ -4,7 +4,7 @@ import hre from 'hardhat'
 import { expect } from 'chai'
 import {EPS, PX0, toUSDC, coprocessor, encryptBool, encryptUint256, unsealEint256, baselineNetPayout, closeFeeOn, _deployFixture, openPosition} from './utils'
 
-describe.only("Endex — Price Impact (entry + exit)", function () {
+describe("Endex — Price Impact (entry + exit)", function () {
   async function deployFixture() {
     return (await _deployFixture());
   }

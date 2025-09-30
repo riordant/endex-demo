@@ -49,9 +49,9 @@ abstract contract EndexTrading is EndexBase {
             toBeLiquidated: FHE.asEbool(false)
         });
 
-        // Pull collateral into pendingLiquidity
+        // Pull collateral into pendingCollateral
         usdc.safeTransferFrom(msg.sender, address(this), collateral);
-        pendingLiquidity += collateral;
+        pendingCollateral += collateral;
 
         // set position
         uint256 id = nextPositionId++;
@@ -84,8 +84,8 @@ abstract contract EndexTrading is EndexBase {
     ) internal override {
         console.log("open position finalize..");
         // Put collateral into total
-        pendingLiquidity -= p.collateral;
-        totalLiquidity += p.collateral;
+        pendingCollateral -= p.collateral;
+        totalCollateral += p.collateral;
 
         // --- Entry price impact buckets (encrypted) BEFORE updating OI ---
         (euint256 impGainX18, euint256 impLossX18) =

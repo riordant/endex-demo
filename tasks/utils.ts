@@ -77,7 +77,7 @@ export async function decryptBool(val: any) {
 }
 
 // CoFHE decrypts async
-export async function coprocessor(ms = 10_000) {
+export async function coprocessor(ms = 1_000) {
   //console.log("waiting for coprocessor..")
   return new Promise((r) => setTimeout(r, ms))
 }
@@ -106,17 +106,22 @@ export function loadAbiFromArtifact(relativeArtifactPath: string): any[] {
 export function parseStatus(status : BigInt) {
     switch(status) {
     case 0n:
-        return "Open"
+        return "Requested"
     case 1n:
-        return "Awaiting Settlement"
+        return "Pending"
     case 2n:
-        return "Liquidated"
+        return "Open"
     case 3n:
+        return "Awaiting Settlement"
+    case 4n:
+        return "Liquidated"
+    case 5n:
         return "Closed"
     default:
         throw new Error("Unknown Status")
     }
 }
+
 
 
 export function parseCloseCause(status : BigInt) {
@@ -151,6 +156,10 @@ export function fmtPnl(pnl: bigint): string {
       ? `-\$${pnlStr.substring(1)}` 
       : `+\$${pnlStr}`;
 }
+
+
+export const usd = (x: number, d = 2) =>
+  x.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 
 export function fmtUSD6(usdc6: bigint): string {
   return (Number(usdc6) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });

@@ -109,7 +109,8 @@ abstract contract EndexBase {
     uint256 public totalLpShares;
     mapping(address => uint256) public lpShares;
     uint256 public totalLiquidity; // pool USDC (6d)
-    uint256 public pendingLiquidity; // pool USDC (6d)
+    uint256 public totalCollateral; // pool collateral (6d)
+    uint256 public pendingCollateral; // pending pool collateral (6d)
 
     // Positions
     uint256 public nextPositionId = 1;

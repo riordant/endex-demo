@@ -188,7 +188,7 @@ describe('Endex — Liquidation', function () {
     expect(diff <= EPS, `actual ${actualPayout} vs expected ${netWithF} (|Δ|=${diff})`).to.eq(true)
   }).timeout(120000);
 
-  it.only('liquidated SHORT under negative rate explicitly pays funding (actual ≈ baseline - size*dF/1e18)', async function () {
+  it('liquidated SHORT under negative rate explicitly pays funding (actual ≈ baseline - size*dF/1e18)', async function () {
     const { perps, perpsAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
   
     // Pool & user

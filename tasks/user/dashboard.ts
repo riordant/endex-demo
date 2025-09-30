@@ -9,6 +9,8 @@ import {
   clearScreen,
   AGGREGATOR_ABI,
   coprocessor,
+  usd,
+  parseStatus,
 } from "../utils";
 
 import { drawPositionsTable } from "./ui/positionsTable";
@@ -82,10 +84,12 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
           priceE8 = BigInt(rd[1]);
         } catch {}
 
-        // Stage equity for all positions in parallel (ignore failures for non-open)
+        // Stage equity for all positions in parallel
         await Promise.allSettled(
           knownIds.map(async (id) => {
             try {
+              const p = await (endex as any).getPosition(id);
+              if(!(parseStatus(p.status) == "Open")) return;
               const tx = await (endex as any).ownerEquity(id, priceE8);
               await tx.wait();
             } catch {}
@@ -109,11 +113,17 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
     async function draw() {
       clearScreen();
       const now = new Date();
+      // mark price
+      let markPx = NaN;
+      try { const rd = await aggregator.latestRoundData(); markPx = toNumE8(BigInt(rd[1])); } catch {}
+      let markPxStr = Number.isFinite(markPx) ? ("$" + usd(markPx, 2)) : "—";
+
       console.log(`Endex — User Dashboard (${network.name})  ${now.toLocaleString()}`);
       console.log("".padEnd(120, "─"));
-      console.log(`User  : ${signer.address}`);
-      console.log(`Endex : ${endexAddr}`);
-      console.log(`Oracle: ${aggAddr}\n`);
+      console.log(`User       : ${signer.address}`);
+      console.log(`Endex      : ${endexAddr}`);
+      console.log(`Oracle     : ${aggAddr}`);
+      console.log(`Mark Price : ${markPxStr}\n`);
 
       let market = "ETH/USD";
       try { market = await (endex as any).marketName(); } catch {}
@@ -130,9 +140,6 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         return;
       }
 
-      // mark price
-      let markPx = NaN;
-      try { const rd = await aggregator.latestRoundData(); markPx = toNumE8(BigInt(rd[1])); } catch {}
 
       //const pendingEquity = await (endex as any).pendingEquity(owner, id);
 
@@ -143,7 +150,6 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         signer,
         knownIds,
         market,
-        markPx,
         mmBps,
         // equity source: pendingEquity mapping (unsealed in the table function)
         getPendingEquity: async (owner: string, id: bigint) => {
