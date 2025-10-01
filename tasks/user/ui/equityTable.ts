@@ -1,6 +1,6 @@
 // tasks/user/ui/equityTable.ts
 import { ethers as EthersNS } from "ethers";
-import { fmtPnl, fmtUSD6 } from "../../utils";
+import { fmtPnl, fmtUSD6, unsealEint256 } from "../../utils";
 
 type Deps = {
   ethers: typeof EthersNS;
@@ -52,6 +52,11 @@ export async function drawEquityTable(deps: Deps) {
     col("IMPACT (EXIT)",   18) +   // exitImpact (gain-loss)
     col("CLOSE FEE",       16)
   );
+
+
+  let frEnc = await endex.fundingRatePerSecX18();
+  console.log("fundingRatePerSecX18:");
+  let fr = await unsealEint256(frEnc);
 
   for (const id of knownIds) {
     // Skip if status < Open

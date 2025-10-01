@@ -60,6 +60,32 @@ export async function encryptUint256(val: bigint) {
   return res.data[0];
 }
 
+export async function decryptEuint256(e : any) {
+    const val = await cofhejs.unseal(e, FheTypes.Uint256);
+    console.log("val.data:", val.data);
+    const v = (val.data == null) ? 0 : val.data;
+    return BigInt(v);
+}
+
+export async function unsealEint256(e : any) {
+    const val = await cofhejs.unseal(e.val, FheTypes.Uint256);
+    if (!val.success) {
+        console.log("failed decrypt.");
+    }
+    const sign = await cofhejs.unseal(e.sign, FheTypes.Bool);
+    if (!sign.success) {
+        console.log("failed decrypt.");
+    }
+
+    console.log("val.data:", val.data);
+    console.log("sign.data:", sign.data);
+    
+    const v = (val.data == null) ? 0 : val.data;
+
+    // make value negative if sign is false
+    return BigInt(!sign.data ? -1 : 1) * BigInt(v);
+}
+
 
 export async function encryptBool(val: boolean) {
   const logState = (state: EncryptStep) => console.log(`Encrypt State :: ${state}`);

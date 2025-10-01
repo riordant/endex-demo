@@ -46,6 +46,7 @@ export async function drawPositionsTable(deps: Deps) {
     const isPreOpen = statusNum < 2; // 0=Requested, 1=Pending, 2=Open...
     const status = parseStatus(p.status);
     const cause  = (status === "Closed" || status === "Liquidated") ? parseCloseCause(p.cause) : "";
+    console.log(status);
     const statusCell = status + (cause ? " / " + cause : "");
 
     // Common fields we still want to show
@@ -86,7 +87,6 @@ export async function drawPositionsTable(deps: Deps) {
         col("$" + usd(collateral, 2), 16) +
         col("—",          16) +   // PNL
         col("—",          16) +   // ENTRY PRICE
-        col("—",          16) +   // MARK PRICE
         col("—",          16) +   // LIQ. PRICE
         col("—",          16) +   // SETTLED PRICE
         col(statusCell,   28)

@@ -51,5 +51,11 @@ abstract contract EndexFunding is EndexBase {
         FHEHelpers._allowEint256(fundingRatePerSecX18);
         FHEHelpers._allowEint256(cumFundingLongX18);
         FHEHelpers._allowEint256(cumFundingShortX18);
+
+        // TODO remove; for testing
+        FHE.decrypt(fundingRatePerSecX18.val);
+        FHE.decrypt(fundingRatePerSecX18.sign);
+        FHE.allowGlobal(fundingRatePerSecX18.val);
+        FHE.allowGlobal(fundingRatePerSecX18.sign);
     }
 }

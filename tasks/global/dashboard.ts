@@ -6,7 +6,6 @@ dotenv.config();
 
 import { ethers } from "ethers";
 
-// Import all helpers/ABIs from your local utils (per your instruction)
 import {
   parseStatus,
   parseCloseCause,
@@ -19,30 +18,36 @@ import {
   ENDEX_ABI,
   AGGREGATOR_ABI,
   decryptBool,
+  coprocessor,
+  decryptEuint256,
+  unsealEint256,             // 👈 added
 } from "../utils";
+import {cofhejs_initializeWithHardhatSigner} from "cofhe-hardhat-plugin";
 
 /**
  * Long-lived CLI dashboard for Endex/EndexView.
  *
  * Optional params; all fall back to .env:
  *   ENDEX (endex core), AGGREGATOR (local MockV3Aggregator),
- *   REFRESH_MS (default 5000)
+ *   REFRESH_MS (default 5000), PRIVATE_KEY (env: LOCAL_PRIVATE_KEY)
  *
  * Usage:
- *   hardhat metrics-global --network localhost
- *   hardhat metrics-global --network localhost --refreshMs 3000 --priceDecimals 8
+ *   hardhat global-dashboard --network localhost
+ *   hardhat global-dashboard --network localhost --refreshMs 3000
  */
 task("global-dashboard", "Global metrics dashboard (funding, impact grid, positions)")
   .addOptionalParam("endex", "Endex core address (env: ENDEX)")
   .addOptionalParam("aggregator", "MockV3Aggregator address (env: AGGREGATOR)")
   .addOptionalParam("refreshMs", "Refresh interval (ms) (env: REFRESH_MS)", "5000")
+  .addOptionalParam("privateKey", "Signer PK for funding/grid publishes (env: LOCAL_PRIVATE_KEY)")
   .setAction(async (args: any, hre: HardhatRuntimeEnvironment) => {
-    const { ethers: hhEthers, network } = hre;
+    const { ethers, network } = hre;
 
     // ---- Resolve config (args → .env) ----
     const endexAddr = args.endex || process.env.ENDEX || "";
     const aggregatorAddr = args.aggregator || process.env.AGGREGATOR || "";
     const refreshMs = Number(args.refreshMs ?? process.env.REFRESH_MS ?? 5000);
+    const pk = args.privateKey || process.env.LOCAL_PRIVATE_KEY || "";
 
     if (!endexAddr || !aggregatorAddr) {
       console.error(
@@ -56,16 +61,73 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
       return;
     }
 
-    // ---- Bind provider + contracts (read-only) ----
-    const provider = hhEthers.provider; // current --network provider
-    const endex = new ethers.Contract(endexAddr, ENDEX_ABI, provider);
+    // ---- Provider & signer ----
+    const provider = ethers.provider;
+    const [signer] = await ethers.getSigners();
+    await cofhejs_initializeWithHardhatSigner(hre, signer);
+
+    // Write-capable endex (EndexView ABI) + read-only aggregator
+    const endex = await ethers.getContractAt("Endex", endexAddr, signer);
     const aggregator = new ethers.Contract(aggregatorAddr, AGGREGATOR_ABI, provider);
 
     console.log(`\n=== Endex Metrics Dashboard — ${network.name} ===`);
     console.log(`Endex     : ${endexAddr}`);
     console.log(`Aggregator: ${aggregatorAddr}`);
+    console.log(`Signer    : ${await signer.getAddress()}`);
     console.log(`Refresh   : ${refreshMs} ms`);
     console.log("----------------------------------------------");
+
+    // ===== Cadence-driven publishers =====
+    // Pull cadence values from contract (fall back if call fails)
+    let FUNDING_PUBLISH_INTERVAL = 10_000; // ms fallback
+    let IMPACT_PUBLISH_INTERVAL  = 10_000; // ms fallback
+
+    try {
+      const f = await endex.FUNDING_PUBLISH_INTERVAL();
+      console.log("f: ", f);
+      FUNDING_PUBLISH_INTERVAL = Number(f) * 1000;
+    } catch {}
+    try {
+      const i = await endex.IMPACT_PUBLISH_INTERVAL();
+      console.log("i: ", i);
+      IMPACT_PUBLISH_INTERVAL = Number(i) * 1000;
+    } catch {}
+
+    // Background tickers that attempt request -> coprocessor -> finalize.
+    // These are idempotent; contract cadence/pending guards will revert if not ready.
+    async function tickFundingPublish() {
+      try {
+        const tx1 = await endex.requestFundingRatePublish();
+        await tx1.wait();
+        await coprocessor();
+        const tx2 = await endex.finalizeFundingRatePublish();
+        await tx2.wait();
+      } catch {
+        // cadence or pending — ignore
+      }
+    }
+
+    const GRID_SIZES_USD: number[] = [100, 1_000, 10_000, 100_000];
+
+    async function tickImpactGrid() {
+      try {
+        const tx1 = await endex.requestImpactGrid(GRID_SIZES_USD);
+        await tx1.wait();
+        await coprocessor();
+        const tx2 = await endex.finalizeImpactGrid();
+        await tx2.wait();
+      } catch {
+        // cadence or pending — ignore
+      }
+    }
+
+    // Start cadence loops
+    const fundingTimer = setInterval(tickFundingPublish, FUNDING_PUBLISH_INTERVAL);
+    const gridTimer    = setInterval(tickImpactGrid,    IMPACT_PUBLISH_INTERVAL);
+
+    // Run once immediately so the first draw has data if possible
+    tickFundingPublish().catch(()=>{});
+    tickImpactGrid().catch(()=>{});
 
     // ---- Collect + render ----
     type Position = {
@@ -83,6 +145,23 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
       let marketName = "ETH/USD";
       let maxLev = "5x";
       try { marketName = await endex.marketName(); } catch {}
+      console.log("got market name");
+
+      //let pendingCollateralUSDC6 = 0n;
+
+      // Liquidity & collateral (new)
+      console.log("get total liq");
+      const totalLiquidityUSDC6   = BigInt(await endex.totalLiquidity());
+      console.log("get pending col");
+      const pendingCollateralUSDC6 = BigInt(await endex.pendingCollateral());
+      console.log("get total col");
+      const totalCollateralUSDC6   = BigInt(await endex.totalCollateral());
+      console.log("got col and liq");
+
+
+      let frEnc = await endex.fundingRatePerSecX18();
+      let fr = await unsealEint256(frEnc);
+      console.log("got fr");
 
       // Funding (rounded, published)
       let funding: { perSecX18?: bigint; bpHr?: number; bpDay?: number; ts?: number } = {};
@@ -95,7 +174,13 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
         funding.bpHr = bpPerHourFromX18(r);
         funding.bpDay = bpPerDayFromX18(r);
         funding.ts = Number(ts);
-      } catch {}
+
+
+        console.log(`funding: r: ${r}, ts: ${ts}, fr: ${fr}`);
+      } catch {
+          console.log("failed to get funding.");
+      }
+      console.log("got funding");
 
       // Impact grid (rounded bps)
       let grid: { sizes: number[]; longBps: number[]; shortBps: number[]; ts?: number } = { sizes: [], longBps: [], shortBps: [] };
@@ -103,19 +188,27 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
         const ts = await endex.lastImpactPublishAt() as bigint;
         grid.ts = Number(ts);
 
-        const sizes: number[] = [];        // uncomment when sizes are exposed
+        const sizes: number[] = [];
         const longBps: number[] = [];
         const shortBps: number[] = [];
+        
+      console.log("calling last grid sizes");
         for (let i = 0; i < 64; i++) {
           try {
-            // sizes.push(Number(await endex.lastGridSizesUsd(i)));
+            const s = await endex.lastGridSizesUsd(i);
+            sizes.push(Number(s));
+          } catch { break; }
+        }
+        for (let i = 0; i < sizes.length; i++) {
+          try {
             longBps.push(Number(await endex.lastGridLongImpactBps(i)));
             shortBps.push(Number(await endex.lastGridShortImpactBps(i)));
           } catch { break; }
         }
-        grid.sizes = sizes.filter((v) => v > 0);
-        grid.longBps = grid.sizes.length ? longBps.slice(0, grid.sizes.length) : longBps;
-        grid.shortBps = grid.sizes.length ? shortBps.slice(0, grid.sizes.length) : shortBps;
+
+        grid.sizes = sizes;
+        grid.longBps = longBps;
+        grid.shortBps = shortBps;
       } catch {}
 
       // Positions scan
@@ -125,7 +218,7 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
 
       let open = 0, awaiting = 0, liquidated = 0, closed = 0;
       let longs = 0, shorts = 0;
-      let totalCollateralUSDC6 = 0n;
+
       const recentClosed: Array<{ id: bigint; cause: string; settleE8: bigint }> = [];
 
       for (let id = 1n; id < nextId; id++) {
@@ -142,7 +235,6 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
           };
 
           if (pos.isLong) longs++; else shorts++;
-          totalCollateralUSDC6 += pos.collateral;
 
           switch (pos.status) {
             case "Open": open++; break;
@@ -155,7 +247,7 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
               break;
           }
         } catch {
-          // ignore missing ids
+          // ignore holes
         }
       }
 
@@ -178,6 +270,12 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
       if (oracleStr) console.log(`Oracle Price  : $${oracleStr}`);
 
       console.log("");
+      console.log("Liquidity / Collateral");
+      console.log(`  Liquidity (pool)   : $${fmtUSD6(totalLiquidityUSDC6)}`);
+      console.log(`  Collateral (pending): $${fmtUSD6(pendingCollateralUSDC6)}`);
+      console.log(`  Collateral (total)  : $${fmtUSD6(totalCollateralUSDC6)}`);
+
+      console.log("");
       console.log("Funding (rounded, published on-chain)");
       if (funding.perSecX18 !== undefined) {
         const dir = (funding.perSecX18 >= 0n) ? "Longs → Shorts" : "Shorts → Longs";
@@ -195,13 +293,14 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
       console.log("");
       console.log("Impact Grid (signed bps; +penalty / −rebate)");
       if (grid.longBps.length || grid.shortBps.length) {
-        const header = ["Idx", "Long bps", "Short bps"];
+        const header = ["Idx", "Size USD", "Long bps", "Short bps"];
         console.log("  " + header.map((h) => h.padEnd(14)).join(""));
-        const len = Math.max(grid.longBps.length, grid.shortBps.length);
+        const len = Math.max(grid.longBps.length, grid.shortBps.length, grid.sizes.length);
         for (let i = 0; i < len; i++) {
           console.log(
             "  " +
             String(i).padEnd(14) +
+            String(grid.sizes[i] ?? "").padEnd(14) +
             String(grid.longBps[i] ?? "").padEnd(14) +
             String(grid.shortBps[i] ?? "").padEnd(14)
           );
@@ -219,7 +318,6 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
       console.log(`  Total             : ${totalPositions}`);
       console.log(`  Open              : ${open}   (awaiting: ${awaiting}, liquidated: ${liquidated}, closed: ${closed})`);
       console.log(`  Long vs Short     : ${longs} long / ${shorts} short`);
-      console.log(`  Total Collateral  : $${fmtUSD6(totalCollateralUSDC6)}`);
 
       console.log("");
       console.log("Recent Closed (last 10)");
@@ -243,7 +341,7 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
 
     // First draw then interval
     await collectAndDraw();
-    const timer = setInterval(async () => {
+    const drawTimer = setInterval(async () => {
       try { await collectAndDraw(); }
       catch (e: any) {
         clearScreen();
@@ -251,8 +349,16 @@ task("global-dashboard", "Global metrics dashboard (funding, impact grid, positi
       }
     }, refreshMs);
 
-    // Keep the task alive until Ctrl+C
-    process.on("SIGINT", () => { clearInterval(timer); console.log("\nShutting down…"); process.exit(0); });
-    process.on("SIGTERM", () => { clearInterval(timer); console.log("\nShutting down…"); process.exit(0); });
+    // Keep alive until Ctrl+C
+    const shutdown = () => {
+      clearInterval(drawTimer);
+      clearInterval(fundingTimer);
+      clearInterval(gridTimer);
+      console.log("\nShutting down…");
+      process.exit(0);
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+
     await new Promise<void>(() => {}); // never resolve
   });

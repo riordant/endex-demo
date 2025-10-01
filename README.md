@@ -1,6 +1,6 @@
 # Endex (Demo)
 
-> A privacy-preserving perpetuals engine for a single ETH market, built on **CoFHE** (Fhenix’s fully homomorphic coprocessor). Position **size** remains encrypted end-to-end and is revealed only at settlement. Funding accrues continuously via a cumulative index and is **paid only at close** to avoid size leakage. Liquidations use an **encrypted equity check**.
+> A privacy-preserving perpetuals engine for a single ETH market, built on **CoFHE** (Fhenix’s fully homomorphic coprocessor). Position data (notional, long/short, entry price, liquidation price) remains encrypted end-to-end and is revealed only at settlement. Basic perp mechanics are implemented (Funding rate, entry/exit price impact).
 
 ---
 
@@ -29,98 +29,58 @@
 
 ## High-level architecture
 
-```mermaid
-flowchart LR
-  U[User / Keeper] -->|open/close| R[Perps Contract]
-  R -->|oracle| O[Chainlink ETH/USD]
-  R -->|USDC| P[Pool]
+What the system is doing (at a glance)
 
-  subgraph Funding
-    R -->|encLongOI| EN[Encrypted OI]
-    EN -->|encShortOI| R
-    R -->|request decrypt| TN[CoFHE Decryption Network]
-  end
+State machine (driven by the keeper in `EndexKeeper.sol`):
+    Requested → Pending → Open → (liq checks) → AwaitingSettlement → {Closed | Liquidated}
 
-  subgraph Settlement
-    R -->|decrypt size| TN
-  end
+All transitions happen inside `EndexKeeper.process(positionIds)` using the current oracle mark, with CoFHE decrypts gating each step.
+The state machine model is required, given that CoFHE is an asyncronous execution model. We create a clean structure here such that all operations that require a 'callback' from the coprocessor
 
-  U -->|requestLiqChecks / finalize| R
-```
+*Privacy model*: core position fields that leak info about trader intent/size stay encrypted end-to-end (euint256, ebool). Decrypts are:
+
+- global for system flags (e.g., “is liquidatable?”, “pending done?”),
+
+- owner-scoped for per-position equity breakdowns,
+
+- and view/cadence-scoped for rounded/public funding rate + impact grid.
+
+*Funding*: sign comes from skew (long OI vs short OI), accrues continuously per-second; each position snapshots a side-specific cumulative index at entry and pays/receives `size * (cum_now − cum_entry)` on close/liquidation.
+
+*Impact*: quadratic, skew-aware penalty/rebate split into non-negative buckets (loss vs gain) both at entry (snapshotted) and exit (computed at close).
+
+*Liquidation check*: compares (collateral + gains + entry impact) vs (losses + maintenance requirement). Exit impact is only applied at settlement.
+
+*Settlement*: decrypts net equity, charges close fee, transfers USDC, removes OI, and resets funding rate from new skew.
 
 - **Single market (ETH-USD)**
 - **USDC collateral** (6 decimals); **Chainlink** price (8 decimals)
-- **LP pool** is the contract’s USDC balance (fees accrue to LPs)
-- **Encrypted state**: position `size`, aggregate long/short OI, and liquidation trigger flag
+- **LP pool** accumulates liquidity from LPs
 - **Reveal policy**: size is revealed **only** at settlement
-
 ---
 
-## Data model & units
+State Machine Flow
+1) Opening (async, privacy-preserving)
 
-- **Prices** \(P, E\): 8 decimals  
-- **Notional size** \(S\): 6 decimals (**encrypted** `euint256`)  
-- **Funding indices & rate**: X18 fixed-point  
-- **Equity comparison**: computed in X18 for precision
+User call: `openPositionRequest(isLong, size, entryPriceRange, collateral)` → sets `Status.Requested` (encrypted isLong, size, entryPriceRange) and pulls collateral into pendingLiquidity. (`EndexTrading._openPositionRequest`)
 
-**Market storage**
-- `fundingRatePerSecX18` (signed X18)
-- `cumFundingLongX18`, `cumFundingShortX18` (signed X18)
-- `encLongOI`, `encShortOI` (encrypted sums of notional)
-- `lastFundingUpdate`
+Keeper cycle (process)
 
-**Position storage**
-- `size` (encrypted 1e6)
-- `collateral` (USDC 1e6)
-- `entryPrice` (1e8)
-- `entryFundingX18` (snapshot at open)
-- `status` (Open → AwaitingSettlement → Closed/Liquidated)
+Requested → Pending: decrypt Validity.requestValid = `_validateSize` && `_validateRange`; if false, refund via _returnUserFunds.
 
----
+Pending → Open: once `pendingDone` decrypts `true` (ie. mark price within `entryPriceRange`), 
+    _openPositionFinalize:
 
-## Trade lifecycle
+        - Snapshot entry funding index for side (`entryFundingX18`),
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant C as Contract
-  participant O as Chainlink
-  participant TN as CoFHE Network
+        - Compute entry impact buckets before OI changes (`_encImpactEntryBucketsAtOpenX18`),
 
-  U->>C: openPosition(isLong, encSize, collateral, TP/SL)
-  C->>C: pokeFunding()
-  Note right of C: snapshot entryFundingX18
-  C->>O: read mark price
-  C->>C: store Position(size=enc,...)
-  Note right of C: update encLongOI/encShortOI
+        - Update encrypted OI (`encLongOI`/`encShortOI`) and recompute funding rate from skew,
 
-  rect rgb(245,245,255)
-  Note over C,TN: Funding rate update (async)
-  U->>C: requestFundingRateFromSkew()
-  C->>TN: decrypt(encNumerator), decrypt(signFlag)
-  U->>C: commitFundingRate(epoch)
-  C->>C: pokeFunding()
-  Note right of C: set fundingRatePerSecX18
-  end
+        - Move collateral from pendingLiquidity → totalLiquidity,
 
-  rect rgb(245,255,245)
-  Note over C,TN: Encrypted liquidation
-  U->>C: requestLiqChecks([id])
-  C->>TN: decrypt(encLiqFlag)
-  U->>C: finalizeLiqChecks([id])
-  alt flag == 1
-    C->>C: set state → AwaitingSettlement
-  else
-    C->>C: continue
-  end
-  end
-
-  U->>C: closePosition(id)
-  C->>TN: decrypt(position.size)
-  U->>C: settlePositions([id])
-  C->>C: compute PnL, funding
-  C->>C: transfer payout
-```
+        - Status.Open.
+All of this is done with encrypted selects, never branching on plaintext. using an encrypted bool in an if statement is not possible with CoFHE, However we can use `FHE.select(ebool, ifTrue, ifFalse)` which will select the right condition via the coprocessor.
 
 ---
 
@@ -132,7 +92,7 @@ Perp engines typically **accrue funding continuously** with a **cumulative index
 - **dYdX**: rate updates hourly; accrual is second-by-second; realized on portfolio change/close.  
 - **GMX**: side-dependent funding that adapts to long/short skew; realized when the position changes.
 
-**Our twist**: funding is **accrued continuously** but **paid only at settlement**. This avoids any mid-life cashflow that would scale with **size**, thereby preserving size privacy while maintaining the correct economics.
+Due to encrypted position data, paying funding on each position update (before close) would leak information about it. Therefore, here, funding is **accrued continuously** but **paid only at settlement**. This avoids any mid-life cashflow that would scale with **size**, thereby preserving size privacy while maintaining the correct economics.
 
 ### Market indices & accrual
 
@@ -147,7 +107,7 @@ $$
 
 with $r=\text{fundingRatePerSecX18}$ (signed X18), $\Delta t$ in seconds.
 
-On `openPosition()`:
+On `_openPositionFinalize()` (following valid position check):
 
 $$
 \text{entryFundingX18} \gets
@@ -276,7 +236,6 @@ Fee accrues to the pool (LPs).
 ### Why this design suits FHE
 
 - **No mid-life cashflows:** avoids per-interval payouts that would scale with size (preventing leakage)
-- **Encrypted comparisons:** liquidation uses a one-bit reveal; notional stays hidden
 - **Aggregate OI kept private:** we decrypt **only** a funding **rate**, not OI totals or individual positions
 
 ### Async request/commit

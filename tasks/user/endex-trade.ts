@@ -30,7 +30,7 @@ import {
  *   hardhat endex-trade-v2 --network localhost
  *   hardhat endex-trade-v2 --network localhost --mode o --collateral "1,000" --side l --lev 5
  */
-task("endex-trade-v2", "Open or close a position (with encrypted entry range + state waiter)")
+task("endex-trade", "Open or close a position (with encrypted entry range + state waiter)")
   .addOptionalParam("mode", "o=open, c=close")
   .addOptionalParam("collateral", "Collateral USDC (6d), e.g. 10,000")
   .addOptionalParam("side", "l=long, s=short")

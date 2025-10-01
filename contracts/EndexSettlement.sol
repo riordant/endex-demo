@@ -47,6 +47,8 @@ abstract contract EndexSettlement is EndexBase {
             usdc.safeTransfer(p.owner, payoutNet);
         }
 
+        totalCollateral -= p.collateral;
+
         // Update encrypted OI aggregates (remove size)
         // both values updated for privacy
         // (isLong) ? encLongOI -= size : encShortOI -= size
