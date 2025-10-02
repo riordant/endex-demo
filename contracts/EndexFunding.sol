@@ -7,7 +7,7 @@ abstract contract EndexFunding is EndexBase {
     using FHEHelpers for *;
 
     /// @notice Accrue cumulative funding using current fundingRatePerSecond.
-    function _pokeFunding() internal override {
+    function _updateFunding() internal override {
         uint256 nowTs = block.timestamp;
         if (nowTs == lastFundingUpdate) return;
 

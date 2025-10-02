@@ -10,7 +10,7 @@ abstract contract EndexSettlement is EndexBase {
         Position storage p = positions[positionId];
 
         // Accrue funding to now
-        _pokeFunding();
+        _updateFunding();
 
         // Build encrypted equity at this price (X18), then request decrypt
         p.pendingEquity = _calcNetEquity(p, settlementPrice);

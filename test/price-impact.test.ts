@@ -2,7 +2,20 @@
 import { loadFixture, time } from '@nomicfoundation/hardhat-toolbox/network-helpers'
 import hre from 'hardhat'
 import { expect } from 'chai'
-import {EPS, PX0, toUSDC, coprocessor, encryptBool, encryptUint256, unsealEint256, baselineNetPayout, closeFeeOn, _deployFixture, openPosition} from './utils'
+
+import {
+    _deployFixture, 
+    baselineNetPayout, 
+    closeFeeOn, 
+    coprocessor, 
+    encryptBool, 
+    encryptUint256, 
+    EPS, 
+    openPosition,
+    PX0, 
+    toUSDC, 
+    decryptEint256,
+} from './utils'
 
 describe("Endex — Price Impact (entry + exit)", function () {
   async function deployFixture() {
@@ -11,7 +24,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
   beforeEach(function () {
     if (!hre.cofhe.isPermittedEnvironment('MOCK')) this.skip()
-    //hre.cofhe.mocks.enableLogs()
+    //hre.cofhe.mocks.enableLogs() // enable for CoFHE operation logs
   })
 
   it("Round-trip neutrality (same K): open and immediately close at same price", async function () {
@@ -26,9 +39,6 @@ describe("Endex — Price Impact (entry + exit)", function () {
     await usdc.mint(user.address, toUSDC(200_000n));
     await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256);
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user));
-
-    // Fix price; keep funding as deployed (≈0)
-    await feed.updateAnswer(PX0);
 
     // Create a little skew (so impact math isn’t degenerate), but keep it stable
     {
@@ -50,7 +60,6 @@ describe("Endex — Price Impact (entry + exit)", function () {
     const encSize = await encryptUint256(notional);
 
     // Open → immediate close at same price
-    await feed.updateAnswer(PX0);
     const start = BigInt(await usdc.balanceOf(user.address));
     await openPosition(endex, keeper, user, encDirection, encSize, coll);
 
@@ -87,8 +96,6 @@ describe("Endex — Price Impact (entry + exit)", function () {
       await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(u));
     }
 
-    await feed.updateAnswer(PX0);
-
     // Create positive skew (long>short)
     {
       const encDirection = await encryptBool(true);
@@ -109,7 +116,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
 
     // keep price/funding stable; tiny time passes to show it doesn’t matter
     await time.increase(60);
-    await endex.pokeFunding();
+    await endex.updateFunding();
 
     await endex.connect(userA).closePosition(2);
     await coprocessor();
@@ -140,8 +147,6 @@ describe("Endex — Price Impact (entry + exit)", function () {
       await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(u));
     }
 
-    await feed.updateAnswer(PX0);
-
     // Start with s>0 by opening a big long on userB
     let encDirection = await encryptBool(true);
     const encBias = await encryptUint256(toUSDC(100_000n));
@@ -161,7 +166,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
     await openPosition(endex, keeper, userA, encDirection, encSize, coll);
 
     await time.increase(60);
-    await endex.pokeFunding();
+    await endex.updateFunding();
 
     await endex.connect(userA).closePosition(2);
     await coprocessor();
@@ -196,8 +201,6 @@ describe("Endex — Price Impact (entry + exit)", function () {
       await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(u));
     }
 
-    await feed.updateAnswer(PX0);
-
     // Keep funding ~0 for ENTRY
     // Create initial slight skew so impact is active
     const encDirection = await encryptBool(true);
@@ -218,7 +221,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
       const encMore = await encryptUint256(toUSDC(150_000n));
       await openPosition(endex, keeper, userB, encDirection, encMore, toUSDC(30_000n));
 
-      const rate = await unsealEint256(await endex.fundingRatePerSecond());
+      const rate = await decryptEint256(await endex.fundingRatePerSecond());
       expect(rate > 0).to.be.true;
     }
 
@@ -260,12 +263,8 @@ describe("Endex — Price Impact (entry + exit)", function () {
     const encSize = await encryptUint256(notional);
 
     const userStart = BigInt(await usdc.balanceOf(user.address))
-    const entryPx = PX0
 
     await openPosition(endex, keeper, user, encDirection, encSize, collateral)
-
-    // Keep price unchanged
-    await feed.updateAnswer(PX0)
 
     // Close → AwaitingSettlement
     await endex.connect(user).closePosition(1)
@@ -273,7 +272,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
     await endex.connect(keeper).process([1])
 
     const userEnd = BigInt(await usdc.balanceOf(user.address))
-    const baseNoImpact = baselineNetPayout(collateral, notional, entryPx, entryPx, 10n)
+    const baseNoImpact = baselineNetPayout(collateral, notional, PX0, PX0, 10n)
     const expectedMax = userStart - collateral + baseNoImpact
 
     console.log("userStart: ", userStart);
@@ -287,7 +286,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
     expect((userEnd - EPS) <= expectedMax).to.eq(true)
   })
 
-  it.only('short on positive skew @ zero price change ends >= baseline (entry impact gain for short)', async function () {
+  it('short on positive skew @ zero price change ends >= baseline (entry impact gain for short)', async function () {
     const { endex, endexAddr, usdc, feed, userA, userB, lp, keeper } = await loadFixture(deployFixture)
   
     // Fund LP
@@ -302,8 +301,6 @@ describe("Endex — Price Impact (entry + exit)", function () {
     await usdc.connect(userB).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(userA))
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(userB))
-  
-    const entryPx = PX0
   
     // 1) Create **positive skew**: OTHER opens a large LONG first.
     {
@@ -325,9 +322,6 @@ describe("Endex — Price Impact (entry + exit)", function () {
     const userAStart = BigInt(await usdc.balanceOf(userA.address))
     await openPosition(endex, keeper, userA, encDirection, encSize, collateral)
   
-    // Keep price unchanged
-    await feed.updateAnswer(entryPx)
-  
     // Close & settle
     await endex.connect(userA).closePosition(2) // userA's position is id=2
     await coprocessor()
@@ -335,7 +329,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
   
     const userAEnd = BigInt(await usdc.balanceOf(userA.address))
     const baseNoImpact = ((): bigint => {
-      const pnl = (notional * (entryPx - entryPx)) / entryPx // zero
+      const pnl = (notional * (PX0 - PX0)) / PX0 // zero
       let gross = collateral + pnl
       if (gross < 0n) gross = 0n
       const fee = (gross * 10n) / 10_000n // 10 bps close fee
@@ -347,7 +341,7 @@ describe("Endex — Price Impact (entry + exit)", function () {
     expect(userAEnd >= expectedMin).to.eq(true)
   })
 
-  it.only('long opened after large short (negative skew) ends >= baseline at zero price change', async function () {
+  it('long opened after large short (negative skew) ends >= baseline at zero price change', async function () {
     const { endex, endexAddr, usdc, feed, userA, userB, lp, keeper } = await loadFixture(deployFixture)
 
     await usdc.mint(lp.address, toUSDC(3_000_000n))
@@ -380,12 +374,8 @@ describe("Endex — Price Impact (entry + exit)", function () {
     const encSize2 = await encryptUint256(notional);
 
     const userAStart = BigInt(await usdc.balanceOf(userA.address))
-    const entryPx = PX0
 
     await openPosition(endex, keeper, userA, encDirection, encSize2, collateral)
-
-    // Zero price move
-    await feed.updateAnswer(entryPx)
 
     // Close & settle
     await endex.connect(userA).closePosition(2) // userA's position is id=2
@@ -393,14 +383,14 @@ describe("Endex — Price Impact (entry + exit)", function () {
     await endex.connect(keeper).process([2])
 
     const userAEnd = BigInt(await usdc.balanceOf(userA.address))
-    const baseNoImpact = baselineNetPayout(collateral, notional, entryPx, entryPx, 10n)
+    const baseNoImpact = baselineNetPayout(collateral, notional, PX0, PX0, 10n)
     const expectedMin = userAStart - collateral + baseNoImpact
 
     // With negative skew at entry, long receives positive entry impact => >= baseline
     expect(userAEnd >= expectedMin).to.eq(true)
   })
 
-  it.only("round trip at same price: entry + exit impact approximately cancels (immediate close)", async function () {
+  it("round trip at same price: entry + exit impact approximately cancels (immediate close)", async function () {
     const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture);
 
     // Seed pool + user
@@ -411,9 +401,6 @@ describe("Endex — Price Impact (entry + exit)", function () {
     await usdc.mint(user.address, toUSDC(200_000n));
     await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256);
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user));
-
-    // Fix price
-    await feed.updateAnswer(PX0);
 
     // Open a small long then close immediately
     const collateral = toUSDC(10_000n);

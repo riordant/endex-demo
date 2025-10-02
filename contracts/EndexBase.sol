@@ -159,7 +159,7 @@ abstract contract EndexBase {
     // SHARED FUNCTIONS
     // ===============================
     // Funding
-    function _pokeFunding() internal virtual;
+    function _updateFunding() internal virtual;
 
     function _setFundingRateFromSkew() internal virtual;
 

@@ -5,11 +5,6 @@ import "./EndexBase.sol";
 
 abstract contract EndexView is EndexBase {
 
-    struct Net {
-        euint256 gainX18;
-        euint256 lossX18;
-    } 
-
     struct PendingEquity {
         eint256 pnl;
         eint256 funding;
@@ -29,7 +24,7 @@ abstract contract EndexView is EndexBase {
         require(p.owner == msg.sender, "Not owner");
         require(p.status == Status.Open, "position not open");
 
-        _pokeFunding(); // update the funding rate
+        _updateFunding(); // update the funding rate
 
         _ownerEquity(positionId, price);
     }

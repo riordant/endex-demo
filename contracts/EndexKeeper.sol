@@ -11,7 +11,7 @@ abstract contract EndexKeeper is EndexBase {
         uint256 price = _markPrice();
 
         // Keep funding fresh for equity calc
-        _pokeFunding();
+        _updateFunding();
 
         for (uint256 i = 0; i < positionIds.length; i++) {
             uint id = positionIds[i];

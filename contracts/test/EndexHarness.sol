@@ -16,8 +16,8 @@ contract EndexHarness is Endex {
         _allowGlobalMock();
     }
 
-    function pokeFunding() public {
-        _pokeFunding();
+    function updateFunding() public {
+        _updateFunding();
         _allowGlobalMock();
     }
 
@@ -53,7 +53,5 @@ contract EndexHarness is Endex {
         FHEHelpers.allowGlobal(fundingRatePerSecond);
         FHEHelpers.allowGlobal(cumFundingLong);
         FHEHelpers.allowGlobal(cumFundingShort);
-        FHE.allowGlobal(encLongOI);
-        FHE.allowGlobal(encShortOI);
     }
 }

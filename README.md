@@ -96,7 +96,7 @@ Due to encrypted position data, paying funding on each position update (before c
 
 ### Market indices & accrual
 
-On `pokeFunding()`:
+On `updateFunding()`:
 
 $$
 \begin{aligned}
@@ -130,7 +130,7 @@ We compute the funding **rate** from **encrypted skew** without revealing OI tot
 2. **Commit (after decrypt ready):**
    - Read `num` and `flag` via `getDecryptResultSafe(...)`.
    - Build **signed** numerator: `signedNum = flag==1 ? +num : -num`.
-   - Convert to **per-second X18** rate, **clamp** to bounds, then `pokeFunding()` and set `fundingRatePerSecX18`.
+   - Convert to **per-second X18** rate, **clamp** to bounds, then `updateFunding()` and set `fundingRatePerSecX18`.
 
 Only the **rate** (a single scalar) is revealed; per-position sizes remain private. This aligns with GMX’s *adaptive funding* concept (rate depends on long/short ratio) while minimizing leakage.
 
@@ -152,7 +152,7 @@ We **do not** transfer funding mid-life. This is economically equivalent to cont
 ### Caveats
 
 - **Rate leakage:** Publishing the **rate** leaks the **sign** and rough magnitude of market skew (by design). We accept this minimal leakage to avoid revealing **aggregate OI** or per-position sizes.
-- **Index freshness:** Always invoke `pokeFunding()` before using indices (e.g., on open, request, commit, liquidation requests). Stale timestamps lead to under/over-accrual.
+- **Index freshness:** Always invoke `updateFunding()` before using indices (e.g., on open, request, commit, liquidation requests). Stale timestamps lead to under/over-accrual.
 - **LP NAV:** If you later allow mid-interval LP deposits/withdrawals priced off pool NAV, consider also tracking a pool-level funding receivable/payable to keep LP share pricing fair (out of scope in the current minimal pool).
 
 ---
@@ -255,7 +255,7 @@ Funding rate:
     (flag, ready2) = getDecryptResultSafe(encFlag)
     require(ready1 && ready2)
     rate = clamp(sign(flag)*num / 1e6)
-    pokeFunding(); fundingRatePerSecX18 = rate; fundingPending = false
+    updateFunding(); fundingRatePerSecX18 = rate; fundingPending = false
 ```
 
 ---

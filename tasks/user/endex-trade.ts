@@ -20,7 +20,7 @@ import {
 } from "../utils";
 
 /**
- * New interactive trader:
+ * Interactive trader:
  * - Adds entry price RANGE (encrypted) to openPositionRequest
  * - Prints current oracle price and supports quick 'C' (±$1.00) range
  * - Submits open, then WAITS until position becomes OPEN (or gets removed)
@@ -32,11 +32,11 @@ import {
  */
 task("endex-trade", "Open or close a position (with encrypted entry range + state waiter)")
   .addOptionalParam("mode", "o=open, c=close")
-  .addOptionalParam("collateral", "Collateral USDC (6d), e.g. 10,000")
+  .addOptionalParam("collateral", "Collateral Underlying (6d), e.g. 10,000")
   .addOptionalParam("side", "l=long, s=short")
   .addOptionalParam("lev", "Leverage 1-5")
   .addOptionalParam("endex", "Override Endex address")
-  .addOptionalParam("usdc", "Override USDC address")
+  .addOptionalParam("underlying", "Override Underlying address")
   .addOptionalParam("aggregator", "Override AggregatorV3 address (for price)")
   .setAction(async (args: any, hre: HardhatRuntimeEnvironment) => {
     const { ethers, network } = hre;
@@ -49,19 +49,19 @@ task("endex-trade", "Open or close a position (with encrypted entry range + stat
 
     // ---- Resolve addresses ----
     const endexAddr = args.endex || getDeployment(network.name, "Endex");
-    const usdcAddr  = args.usdc  || getDeployment(network.name, "USDC");
+    const underlyingAddr  = args.underlying  || getDeployment(network.name, "Underlying");
     const aggAddr   = args.aggregator || getDeployment(network.name, "PriceFeed");
-    if (!endexAddr || !usdcAddr || !aggAddr) {
-      console.error("Missing Endex/USDC/Aggregator deployment. Provide --endex/--usdc/--aggregator or deploy first.");
+    if (!endexAddr || !underlyingAddr || !aggAddr) {
+      console.error("Missing Endex/Underlying/Aggregator deployment. Provide --endex/--underlying/--aggregator or deploy first.");
       return;
     }
     console.log(`Endex : ${endexAddr}`);
-    console.log(`USDC  : ${usdcAddr}`);
+    console.log(`Underlying  : ${underlyingAddr}`);
     console.log(`Oracle: ${aggAddr}\n`);
 
     // ---- Bind contracts ----
     const endex = await ethers.getContractAt("Endex", endexAddr, signer);
-    const usdc  = await ethers.getContractAt("MintableToken", usdcAddr, signer);
+    const underlying  = await ethers.getContractAt("MintableToken", underlyingAddr, signer);
     const aggregator = new ethers.Contract(aggAddr, AGGREGATOR_ABI, ethers.provider);
 
     // ---- Helpers (status parsing for this script) ----
@@ -120,8 +120,8 @@ task("endex-trade", "Open or close a position (with encrypted entry range + stat
 
     if (mode === "o") {
       // ---------- OPEN FLOW ----------
-      const collateralStr = args.collateral || await ask("Enter collateral (USDC, 6d, e.g. 10,000): ");
-      const collateralUSDC6 = parseUsd6(collateralStr);
+      const collateralStr = args.collateral || await ask("Enter collateral (Underlying, 6d, e.g. 10,000): ");
+      const collateralUnderlying6 = parseUsd6(collateralStr);
 
       const side = (args.side || await ask("Enter side: long(l) / short(s): ")).toLowerCase();
       if (!["l", "s"].includes(side)) throw new Error("Invalid side; use 'l' or 's'");
@@ -130,7 +130,7 @@ task("endex-trade", "Open or close a position (with encrypted entry range + stat
       const levNum = Number(args.lev || await ask("Enter leverage (1-5): "));
       if (!Number.isFinite(levNum) || levNum < 1 || levNum > 5) throw new Error("Invalid leverage; must be 1-5");
 
-      const sizeUSDC6 = collateralUSDC6 * BigInt(levNum);
+      const sizeUnderlying6 = collateralUnderlying6 * BigInt(levNum);
 
       // --- Show current price; support quick 'C' range ---
       let currentE8 = 0n;
@@ -170,24 +170,24 @@ task("endex-trade", "Open or close a position (with encrypted entry range + stat
       }
 
       // Encrypt inputs
-      const sizeEnc = await encryptUint256(sizeUSDC6);
+      const sizeEnc = await encryptUint256(sizeUnderlying6);
       const dirEnc  = await encryptBool(isLong);
       const lowEnc  = await encryptUint256(lowE8);
       const highEnc = await encryptUint256(highE8);
 
       // Mint & approve collateral
       {
-        const mintTx = await usdc.mint(signer.address, collateralUSDC6);
+        const mintTx = await underlying.mint(signer.address, collateralUnderlying6);
         await mintTx.wait();
-        const allowance = await usdc.allowance(signer.address, endexAddr);
-        if (allowance < collateralUSDC6) {
-          const approveTx = await usdc.approve(endexAddr, collateralUSDC6);
+        const allowance = await underlying.allowance(signer.address, endexAddr);
+        if (allowance < collateralUnderlying6) {
+          const approveTx = await underlying.approve(endexAddr, collateralUnderlying6);
           await approveTx.wait();
         }
       }
 
       console.log(
-        `\nOpening: ${isLong ? "LONG" : "SHORT"}  size=$${fmtUSD6(sizeUSDC6)}  collateral=$${fmtUSD6(collateralUSDC6)}  lev=${levNum}x\n` +
+        `\nOpening: ${isLong ? "LONG" : "SHORT"}  size=$${fmtUSD6(sizeUnderlying6)}  collateral=$${fmtUSD6(collateralUnderlying6)}  lev=${levNum}x\n` +
         `Range  : [$${fmtPriceE8(lowE8)}, $${fmtPriceE8(highE8)}]`
       );
 
@@ -196,7 +196,7 @@ task("endex-trade", "Open or close a position (with encrypted entry range + stat
         dirEnc,
         sizeEnc,
         { low: lowEnc, high: highEnc },   // InRange
-        collateralUSDC6
+        collateralUnderlying6
       );
       console.log(`→ openPositionRequest tx=${tx.hash}`);
       await tx.wait();
@@ -246,7 +246,7 @@ task("endex-trade", "Open or close a position (with encrypted entry range + stat
       }
 
       console.log("\nYour OPEN positions:");
-      console.log("  " + pad("Idx", 5) + pad("PosID", 10) + pad("Side", 8) + pad("Collateral(USDC)", 20) + pad("EntryPx", 16));
+      console.log("  " + pad("Idx", 5) + pad("PosID", 10) + pad("Side", 8) + pad("Collateral(Underlying)", 20) + pad("EntryPx", 16));
       ownedOpen.forEach((p, i) => {
         console.log(
           "  " +

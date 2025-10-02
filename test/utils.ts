@@ -1,5 +1,4 @@
-// test/liquidation.test.ts
-import { loadFixture, time } from '@nomicfoundation/hardhat-toolbox/network-helpers'
+// test/utils.ts
 import hre from 'hardhat'
 import { cofhejs, Encryptable, FheTypes } from 'cofhejs/node'
 
@@ -27,10 +26,8 @@ export async function _deployFixture() {
 export function toUSDC(n: bigint) { return n * 10n ** 6n }    // 6 decimals
 export function price(n: bigint)  { return n * 10n ** 8n }    // 8 decimals
 export const ONE_X18 = 10n ** 18n
-
 export const EPS    = 50000n; // a few ~cents on typical sizes; tune if needed
 export const CLOSE_FEE_BPS = 10n // 0.1%
-
 // Keep oracle price constant across most tests
 export const PX0 = price(2000n);
 
@@ -70,7 +67,7 @@ export async function encryptUint256(val: bigint) {
   return enc;
 }
 
-export async function unsealEuint256(e : any) {
+export async function decryptEuint256(e : any) {
     const val = await cofhejs.unseal(e, FheTypes.Uint256);
     console.log(val.data);
     const v = (val.data == null) ? 0 : val.data;
@@ -85,13 +82,10 @@ export async function encryptBool(val: boolean) {
   return enc;
 }
 
-export async function unsealEint256(e : any) {
+export async function decryptEint256(e : any) {
     const val = await cofhejs.unseal(e.val, FheTypes.Uint256);
     const sign = await cofhejs.unseal(e.sign, FheTypes.Bool);
 
-    console.log("val.data:", val.data);
-    console.log("sign.data:", sign.data);
-    
     const v = (val.data == null) ? 0 : val.data;
 
     // make value negative if sign is false
@@ -164,5 +158,3 @@ export async function openPosition(endex: any, keeper: any, user: any, direction
           throw new Error("Status not Open");
       }
 }
-
-

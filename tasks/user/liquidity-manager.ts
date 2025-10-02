@@ -11,11 +11,11 @@ import {ENDEX_ABI, ERC20_ABI, sleep} from "../utils";
 
 /**
  * Interact with Endex LP:
- *  - Deposit: mint USDC to signer (mock), approve Endex, lpDeposit(amount)
+ *  - Deposit: mint Underlying to signer (mock), approve Endex, lpDeposit(amount)
  *  - Withdraw: read lpSharesOf(signer), prompt amount or 'M' for max, lpWithdraw(shares)
  *
  * Optional params; all fall back to .env:
- *   ENDEX (endex address), USDC (mintable token), LOCAL_PRIVATE_KEY (for txs), MODE (d/w), AMOUNT
+ *   ENDEX (endex address), Underlying (mintable token), LOCAL_PRIVATE_KEY (for txs), MODE (d/w), AMOUNT
  *
  * Examples:
  *   hardhat endex-liquidity --network localhost
@@ -25,26 +25,26 @@ import {ENDEX_ABI, ERC20_ABI, sleep} from "../utils";
 
 task("liquidity-manager", "Add/remove liquidity (deposit/withdraw) on Endex")
   .addOptionalParam("endex", "Endex address (env: ENDEX)")
-  .addOptionalParam("usdc", "USDC (MintableToken) address (env: USDC)")
+  .addOptionalParam("underlying", "Underlying (MintableToken) address (env: Underlying)")
   .addOptionalParam("mode", "d=deposit, w=withdraw (env: MODE)")
-  .addOptionalParam("amount", "Amount: USDC for deposit (6d), shares for withdraw, or 'M' (env: AMOUNT)")
+  .addOptionalParam("amount", "Amount: Underlying for deposit (6d), shares for withdraw, or 'M' (env: AMOUNT)")
   .addOptionalParam("privateKey", "Local PK for txs (env: LOCAL_PRIVATE_KEY)")
   .setAction(async (args: any, hre: HardhatRuntimeEnvironment) => {
     const { ethers: hhEthers, network } = hre;
 
     // ----- Resolve config: prefer args, then .env -----
     const endexAddr = args.endex || process.env.ENDEX || "";
-    const usdcAddr  = args.usdc  || process.env.USDC  || "";
+    const underlyingAddr  = args.underlying  || process.env.Underlying  || "";
     const modeArg   = (args.mode || process.env.MODE || "").toLowerCase();
     const amountArg = args.amount ?? process.env.AMOUNT;
     const pk        = args.privateKey || process.env.LOCAL_PRIVATE_KEY || "";
 
-    if (!endexAddr || !usdcAddr) {
+    if (!endexAddr || !underlyingAddr) {
       console.error(
         [
           "Missing contract addresses.",
           `  ENDEX : ${endexAddr || "(missing)"}`,
-          `  USDC  : ${usdcAddr  || "(missing)"}`,
+          `  Underlying  : ${underlyingAddr  || "(missing)"}`,
           "Provide via CLI args or .env.",
         ].join("\n")
       );
@@ -61,11 +61,11 @@ task("liquidity-manager", "Add/remove liquidity (deposit/withdraw) on Endex")
     }
     const user = await signer.getAddress();
 
-    const usdc = new ethers.Contract(usdcAddr, ERC20_ABI, signer);
+    const underlying = new ethers.Contract(underlyingAddr, ERC20_ABI, signer);
     const endex = new ethers.Contract(endexAddr, ENDEX_ABI, signer);
 
     // ----- Helpers -----
-    const usdcDecimals = 6;
+    const underlyingDecimals = 6;
     const shareDecimals = 6; // adjust if your shares use other decimals
 
     const parseAmountWithDecimals = (userInput: string, decimals: number): bigint => {
@@ -87,7 +87,7 @@ task("liquidity-manager", "Add/remove liquidity (deposit/withdraw) on Endex")
     console.log(`\n=== Endex Liquidity — ${network.name} ===`);
     console.log(`Signer : ${user}`);
     console.log(`ENDEX  : ${endexAddr}`);
-    console.log(`USDC   : ${usdcAddr}`);
+    console.log(`Underlying   : ${underlyingAddr}`);
     console.log("--------------------------------------\n");
 
     // ----- Prompt if missing -----
@@ -103,27 +103,27 @@ task("liquidity-manager", "Add/remove liquidity (deposit/withdraw) on Endex")
 
     if (mode === "d") {
       // ---- Deposit flow ----
-      const amtStr = amountArg ?? await ask("Deposit amount (USDC, 6d, e.g. 10 or 10,000): ");
-      const amountUSDC6 = parseAmountWithDecimals(String(amtStr), usdcDecimals);
+      const amtStr = amountArg ?? await ask("Deposit amount (Underlying, 6d, e.g. 10 or 10,000): ");
+      const amountUnderlying6 = parseAmountWithDecimals(String(amtStr), underlyingDecimals);
 
-      // Mint mock USDC to signer
-      console.log(`Minting ${formatAmountWithDecimals(amountUSDC6, usdcDecimals)} USDC to ${user}…`);
-      const mintTx = await usdc.mint(user, amountUSDC6);
+      // Mint mock Underlying to signer
+      console.log(`Minting ${formatAmountWithDecimals(amountUnderlying6, underlyingDecimals)} Underlying to ${user}…`);
+      const mintTx = await underlying.mint(user, amountUnderlying6);
       await mintTx.wait();
       await sleep(300);
 
       // Approve if needed
-      const allowance: bigint = await usdc.allowance(user, endexAddr);
-      if (allowance < amountUSDC6) {
-        console.log(`Approving ${formatAmountWithDecimals(amountUSDC6, usdcDecimals)} USDC…`);
-        const approveTx = await usdc.approve(endexAddr, amountUSDC6);
+      const allowance: bigint = await underlying.allowance(user, endexAddr);
+      if (allowance < amountUnderlying6) {
+        console.log(`Approving ${formatAmountWithDecimals(amountUnderlying6, underlyingDecimals)} Underlying…`);
+        const approveTx = await underlying.approve(endexAddr, amountUnderlying6);
         await approveTx.wait();
         await sleep(300);
       }
 
       // Deposit
-      const tx = await endex.lpDeposit(amountUSDC6);
-      console.log(`Depositing ${formatAmountWithDecimals(amountUSDC6, usdcDecimals)} USDC… tx=${tx.hash}`);
+      const tx = await endex.lpDeposit(amountUnderlying6);
+      console.log(`Depositing ${formatAmountWithDecimals(amountUnderlying6, underlyingDecimals)} Underlying… tx=${tx.hash}`);
       await tx.wait();
       console.log("✅ Deposit complete.");
 

@@ -178,8 +178,8 @@ export function fmtPnl(pnl: bigint): string {
 export const usd = (x: number, d = 2) =>
   x.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 
-export function fmtUSD6(usdc6: bigint): string {
-  return (Number(usdc6) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export function fmtUSD6(underlying6: bigint): string {
+  return (Number(underlying6) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 export function fmt(num: number, frac = 2): string {
   return num.toLocaleString(undefined, { minimumFractionDigits: frac, maximumFractionDigits: frac });

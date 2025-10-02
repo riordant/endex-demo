@@ -21,8 +21,7 @@ task("miner", "Advance time and mine blocks based on .env")
   .setAction(async (_args: any, hre: HardhatRuntimeEnvironment) => {
     const { network } = hre;
 
-    //const SECONDS = Number(process.env.SECONDS ?? "0");
-    const SECONDS = Number(604800);
+    const SECONDS = Number(process.env.SECONDS  ?? "0");
     const BLOCKS  = Number(process.env.BLOCKS  ?? "0");
 
     if (!Number.isFinite(SECONDS) || SECONDS < 0) {

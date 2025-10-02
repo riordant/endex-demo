@@ -4,7 +4,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { saveDeployment } from "../utils";
 
 task("endex-deploy", "Deploy the Endex contract (and mocks if needed)")
-  .addOptionalParam("usdc", "USDC token address (6 decimals)")
+  .addOptionalParam("underlying", "Underlying token address (6 decimals)")
   .addOptionalParam("feed", "Chainlink AggregatorV3 address (8 decimals)")
   .addOptionalParam(
     "price",
@@ -19,21 +19,21 @@ task("endex-deploy", "Deploy the Endex contract (and mocks if needed)")
     const [deployer] = await ethers.getSigners();
     console.log(`Deployer: ${deployer.address}`);
 
-    // --- Resolve / deploy USDC ---
-    let usdcAddr: string = args.usdc;
-    if (!usdcAddr) {
-      console.log("• No --usdc provided → deploying a local USDC mock (6 decimals).");
+    // --- Resolve / deploy Underlying ---
+    let underlyingAddr: string = args.underlying;
+    if (!underlyingAddr) {
+      console.log("• No --underlying provided → deploying a local Underlying mock (6 decimals).");
       // Adjust the mock name/ctor if your repo uses a different one
       // (e.g. ERC20Mock with a different constructor signature).
-      const USDC = await ethers.getContractFactory("MintableToken");
+      const Underlying = await ethers.getContractFactory("MintableToken");
       // constructor(string name, string symbol, uint8 decimals) OR your mock’s signature
-      const usdc = await USDC.deploy("USD Coin", "USDC", 6);
-      await usdc.waitForDeployment();
-      usdcAddr = await usdc.getAddress();
-      console.log(`  USDCMock @ ${usdcAddr}`);
-      saveDeployment(network.name, "USDC", usdcAddr);
+      const underlying = await Underlying.deploy("USD Coin", "USDC", 6);
+      await underlying.waitForDeployment();
+      underlyingAddr = await underlying.getAddress();
+      console.log(`  UnderlyingMock @ ${underlyingAddr}`);
+      saveDeployment(network.name, "Underlying", underlyingAddr);
     } else {
-      console.log(`• Using provided USDC @ ${usdcAddr}`);
+      console.log(`• Using provided Underlying @ ${underlyingAddr}`);
     }
 
     // --- Resolve / deploy Aggregator ---
@@ -56,12 +56,12 @@ task("endex-deploy", "Deploy the Endex contract (and mocks if needed)")
 
     // --- Deploy Endex ---
     const Endex = await ethers.getContractFactory("Endex");
-    const endex = await Endex.deploy(usdcAddr, feedAddr, feedAddr);
+    const endex = await Endex.deploy(underlyingAddr, feedAddr, feedAddr);
     await endex.waitForDeployment();
     const endexAddr = await endex.getAddress();
 
     console.log(`\n✅ Endex deployed @ ${endexAddr}`);
-    console.log(`   USDC  @ ${usdcAddr}`);
+    console.log(`   Underlying  @ ${underlyingAddr}`);
     console.log(`   FEED  @ ${feedAddr}\n`);
 
     saveDeployment(network.name, "Endex", endexAddr);

@@ -88,9 +88,9 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         await Promise.allSettled(
           knownIds.map(async (id) => {
             try {
-              const p = await (endex as any).getPosition(id);
+              const p = await endex.getPosition(id);
               if(!(parseStatus(p.status) == "Open")) return;
-              const tx = await (endex as any).ownerEquity(id, priceE8);
+              const tx = await endex.ownerEquity(id, priceE8);
               await tx.wait();
             } catch {}
           })
@@ -126,11 +126,11 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
       console.log(`Mark Price : ${markPxStr}\n`);
 
       let market = "ETH/USD";
-      try { market = await (endex as any).marketName(); } catch {}
+      try { market = await endex.marketName(); } catch {}
 
       // public MM bps
       let mmBps = 0;
-      try { mmBps = Number(await (endex as any).MAINT_MARGIN_BPS()); } catch {}
+      try { mmBps = Number(await endex.MAINT_MARGIN_BPS()); } catch {}
 
       // ensure we have ids
       if (!knownIds.length) knownIds = await listOwnedIds();
@@ -140,8 +140,6 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         return;
       }
 
-
-      //const pendingEquity = await (endex as any).pendingEquity(owner, id);
 
       // ---- Draw Positions (top table) ----
       await drawPositionsTable({
@@ -154,7 +152,7 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         // equity source: pendingEquity mapping (unsealed in the table function)
         getPendingEquity: async (owner: string, id: bigint) => {
           // returns raw struct from contract getter
-          return await (endex as any).pendingEquity(owner, id);
+          return await endex.pendingEquity(owner, id);
         },
         cofhejs,
         FheTypes,
@@ -170,7 +168,7 @@ task("user-dashboard", "GMX-style user dashboard with batched owner-equity refre
         knownIds,
         market,
         getPendingEquity: async (owner: string, id: bigint) => {
-          return await (endex as any).pendingEquity(owner, id);
+          return await endex.pendingEquity(owner, id);
         },
         cofhejs,
         FheTypes,

@@ -82,22 +82,18 @@ task("position-keeper", "Polls positions and advances their state via Endex.proc
         try {
           const p = await endex.getPosition(id);
 
-          // p.status is a uint8 enum
           const status: number = Number(p.status ?? p["status"]);
           if (!ACTIVE_SET.has(status)) continue;
 
           // If Requested, ensure not removed (validity.removed == false)
           if (status === STATUS_REQUESTED) {
-            // nested struct is returned as an object by ethers
             const validity = p.validity ?? p["validity"];
             const removed  = Boolean(validity?.removed);
             if (removed) continue;
           }
 
           ids.push(id);
-        } catch {
-          // ignore missing ids / transient decode issues
-        }
+        } catch {}
       }
 
       return ids;

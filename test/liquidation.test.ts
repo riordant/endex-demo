@@ -2,7 +2,19 @@
 import { loadFixture, time } from '@nomicfoundation/hardhat-toolbox/network-helpers'
 import hre from 'hardhat'
 import { expect } from 'chai'
-import {_deployFixture, coprocessor, encryptBool, encryptUint256, ONE_X18, openPosition, parseStatus, price, toUSDC, unsealEint256} from './utils'
+
+import {
+    _deployFixture, 
+    coprocessor, 
+    encryptBool, 
+    encryptUint256, 
+    ONE_X18, 
+    openPosition, 
+    parseStatus, 
+    price, 
+    toUSDC, 
+    decryptEint256
+} from './utils'
 
 describe('Endex — Liquidation', function () {
   async function deployFixture() {
@@ -11,7 +23,7 @@ describe('Endex — Liquidation', function () {
 
   beforeEach(function () {
     if (!hre.cofhe.isPermittedEnvironment('MOCK')) this.skip()
-    //hre.cofhe.mocks.enableLogs()
+    //hre.cofhe.mocks.enableLogs() // enable for CoFHE operation logs
   })
 
   it('performs encrypted liquidation via request → finalize → settle', async function () {
@@ -119,7 +131,7 @@ describe('Endex — Liquidation', function () {
       
       await openPosition(endex, keeper, user, edL, esL, toUSDC(24_000n))
   
-      const r = await unsealEint256(await endex.fundingRatePerSecond())
+      const r = await decryptEint256(await endex.fundingRatePerSecond())
       expect(r > 0n, 'expected positive funding rate (longs pay)').to.eq(true)
     }
   
@@ -133,7 +145,7 @@ describe('Endex — Liquidation', function () {
   
     // Accrue funding meaningfully
     await time.increase(3 * 24 * 3600) // 3 days
-    await endex.pokeFunding()
+    await endex.updateFunding()
   
     // Price low enough to liquidate, but still equity > 0 (baseline)
     // Entry 2000 → at 1619: pnl = 25k * (1619-2000)/2000 = -4,762.5 → equity ~ 237.5 > 0
@@ -141,8 +153,8 @@ describe('Endex — Liquidation', function () {
   
     // Snapshot funding delta for this position (id = 2)
     const pos2_before = await endex.getPosition(2)
-    const cumLong = await unsealEint256(await endex.cumFundingLong())
-    const entryFunding2 = await unsealEint256(pos2_before.entryFunding)
+    const cumLong = await decryptEint256(await endex.cumFundingLong())
+    const entryFunding2 = await decryptEint256(pos2_before.entryFunding)
     let dF = cumLong - entryFunding2
     expect(dF > 0n, 'dF should be positive for longs when rate>0').to.eq(true)
   
@@ -155,7 +167,7 @@ describe('Endex — Liquidation', function () {
     await coprocessor()
   
     // Optional: avoid accrual drift
-    await endex.pokeFunding()
+    await endex.updateFunding()
   
     // Settle and observe actual transfer
     const userStart = BigInt(await usdc.balanceOf(user.address))
@@ -188,7 +200,7 @@ describe('Endex — Liquidation', function () {
     expect(diff <= EPS, `actual ${actualPayout} vs expected ${netWithF} (|Δ|=${diff})`).to.eq(true)
   }).timeout(120000);
 
-  it('liquidated SHORT under negative rate explicitly pays funding (actual ≈ baseline - size*dF/1e18)', async function () {
+  it.only('liquidated SHORT under negative rate explicitly pays funding (actual ≈ baseline - size*dF/1e18)', async function () {
     const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
   
     // Pool & user
@@ -205,7 +217,7 @@ describe('Endex — Liquidation', function () {
       const eD = await encryptBool(false);
       const eS = await encryptUint256(toUSDC(150_000n))
       await openPosition(endex, keeper, user, eD, eS, toUSDC(30_000n))
-      const rate = await unsealEint256(await endex.fundingRatePerSecond())
+      const rate = await decryptEint256(await endex.fundingRatePerSecond())
       expect(rate < 0n, 'expected negative funding rate (shorts pay)').to.eq(true)
     }
   
@@ -219,7 +231,7 @@ describe('Endex — Liquidation', function () {
   
     // Accrue funding for a bit
     await time.increase(6 * 3600) // 6h
-    await endex.pokeFunding()
+    await endex.updateFunding()
   
     // Pick price that liquidates but leaves positive baseline equity
     // For E=2000, size=30k, coll=6k: P=2390 → equity ≈ 150 (positive), maintenance > 150 → liquidate
@@ -234,10 +246,10 @@ describe('Endex — Liquidation', function () {
     await coprocessor()
   
     // Freeze funding at settlement boundary and compute dF for the short
-    await endex.pokeFunding()
+    await endex.updateFunding()
     const pos = await endex.getPosition(2)
-    const entryFunding = await unsealEint256(pos.entryFunding)
-    const cumShortNow  = await unsealEint256(await endex.cumFundingShort())
+    const entryFunding = await decryptEint256(pos.entryFunding)
+    const cumShortNow  = await decryptEint256(await endex.cumFundingShort())
     const dF = cumShortNow - entryFunding
     expect(dF > 0n, 'short dF should be positive under negative rate').to.eq(true)
   

@@ -38,7 +38,7 @@ abstract contract EndexTrading is EndexBase {
         InRange calldata entryPriceRange_,
         uint256 collateral
     ) internal {
-        _pokeFunding();
+        _updateFunding();
 
         // get inputs 
         ebool isLong = FHE.asEbool(isLong_);
