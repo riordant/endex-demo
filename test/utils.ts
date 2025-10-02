@@ -16,12 +16,12 @@ export async function _deployFixture() {
     const feed = await Feed.deploy(8, PX0)
     const feedAddr = await feed.getAddress()
 
-    // Perps
-    const Perps = await hre.ethers.getContractFactory('EndexHarness')
-    const perps = await Perps.deploy(usdcAddr, feedAddr, keeper)
-    const perpsAddr = await perps.getAddress()
+    // Endex
+    const Endex = await hre.ethers.getContractFactory('EndexHarness')
+    const endex = await Endex.deploy(usdcAddr, feedAddr)
+    const endexAddr = await endex.getAddress()
 
-    return { perps, perpsAddr, usdc, feed, deployer, userA, userB, lp, keeper }
+    return { endex, endexAddr, usdc, feed, deployer, userA, userB, lp, keeper }
 }
 
 export function toUSDC(n: bigint) { return n * 10n ** 6n }    // 6 decimals
@@ -138,27 +138,27 @@ export function parseCloseCause(status : BigInt) {
 }
 
 
-export async function openPosition(perps: any, keeper: any, user: any, direction: any, size: any, collateral: any) {
+export async function openPosition(endex: any, keeper: any, user: any, direction: any, size: any, collateral: any) {
       
       let range = [
           await encryptUint256(price(1999n)),
           await encryptUint256(price(2001n))
       ];
       console.log("open position request..");
-      await perps.connect(user).openPositionRequest(direction, size, range, collateral);
+      await endex.connect(user).openPositionRequest(direction, size, range, collateral);
       await coprocessor();
 
-      const id = Number(await perps.nextPositionId())-1;
+      const id = Number(await endex.nextPositionId())-1;
 
       console.log("Process state from Requested -> Pending..");
-      await perps.connect(keeper).process([id]);
+      await endex.connect(keeper).process([id]);
       await coprocessor();
 
       console.log("Process state from Pending -> Open..");
-      await perps.connect(keeper).process([id]);
+      await endex.connect(keeper).process([id]);
       await coprocessor();
 
-      const status = parseStatus((await perps.getPosition(id)).status);
+      const status = parseStatus((await endex.getPosition(id)).status);
       console.log("Status: ", status);
       if(status != "Open") {
           throw new Error("Status not Open");

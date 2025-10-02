@@ -22,7 +22,7 @@ contract Endex is
     EndexTrading,
     EndexView
 {
-    constructor(IERC20 _usdc, IAggregatorV3 _feed, address keeper)
-        EndexBase(_usdc, _feed, keeper)
+    constructor(IERC20 _underlying, IAggregatorV3 _feed)
+        EndexBase(_underlying, _feed)
     {}
 }

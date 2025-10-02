@@ -15,14 +15,14 @@ describe('Endex — Liquidation', function () {
   })
 
   it('performs encrypted liquidation via request → finalize → settle', async function () {
-    const { perps, perpsAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
+    const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
 
     await usdc.mint(lp.address, toUSDC(1_000_000n))
-    await usdc.connect(lp).approve(perpsAddr, hre.ethers.MaxUint256)
-    await perps.connect(lp).lpDeposit(toUSDC(1_000_000n))
+    await usdc.connect(lp).approve(endexAddr, hre.ethers.MaxUint256)
+    await endex.connect(lp).lpDeposit(toUSDC(1_000_000n))
 
     await usdc.mint(user.address, toUSDC(30_000n))
-    await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
+    await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
 
     // 4x long likely to liquidate on large drop
@@ -32,26 +32,26 @@ describe('Endex — Liquidation', function () {
     const encDirection = await encryptBool(direction);
     const encSize = await encryptUint256(size)
 
-    await openPosition(perps, keeper, user, encDirection, encSize, collateral)
+    await openPosition(endex, keeper, user, encDirection, encSize, collateral)
 
     // Big drop to force liquidation
     await feed.updateAnswer(price(1500n))
 
     // Step 1: request liquidation checks (starts decrypts)
-    await perps.connect(keeper).process([1])
+    await endex.connect(keeper).process([1])
     await coprocessor()
 
     // Step 2: finalize; should pass liquidatable check and move to Awaiting Settlement
-    await perps.connect(keeper).process([1])
-    let pos = await perps.getPosition(1)
+    await endex.connect(keeper).process([1])
+    let pos = await endex.getPosition(1)
     expect(parseStatus(pos.status)).to.equal("Awaiting Settlement")
 
     // Wait for size decrypt triggered in setup
     await coprocessor()
 
     // Settle; expect Liquidated
-    await perps.connect(keeper).process([1])
-    pos = await perps.getPosition(1)
+    await endex.connect(keeper).process([1])
+    pos = await endex.getPosition(1)
     expect(parseStatus(pos.status)).to.equal("Liquidated")
   })
 
@@ -59,14 +59,14 @@ describe('Endex — Liquidation', function () {
   // Negative intermediaries guard
   // -----------------------------
   it('handles deep negative price PnL without underflow', async function () {
-    const { perps, perpsAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
+    const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
 
     await usdc.mint(lp.address, toUSDC(1_000_000n))
-    await usdc.connect(lp).approve(perpsAddr, hre.ethers.MaxUint256)
-    await perps.connect(lp).lpDeposit(toUSDC(1_000_000n))
+    await usdc.connect(lp).approve(endexAddr, hre.ethers.MaxUint256)
+    await endex.connect(lp).lpDeposit(toUSDC(1_000_000n))
 
     await usdc.mint(user.address, toUSDC(30_000n))
-    await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
+    await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
 
     const collateral = toUSDC(5_000n)
@@ -75,25 +75,25 @@ describe('Endex — Liquidation', function () {
     const encDirection = await encryptBool(direction);
     const encSize = await encryptUint256(size);
 
-    await openPosition(perps, keeper, user, encDirection, encSize, collateral)
+    await openPosition(endex, keeper, user, encDirection, encSize, collateral)
 
     // ~50% drop (2000 -> 1000) would make (ratio - 1) negative if naive; our buckets avoid underflow
     await feed.updateAnswer(price(1000n))
 
     // Step 1: request liquidation checks (starts decrypts)
-    await perps.connect(keeper).process([1])
+    await endex.connect(keeper).process([1])
     await coprocessor()
 
     // Step 2: finalize; should pass liquidatable check and move to Awaiting Settlement
-    await perps.connect(keeper).process([1])
+    await endex.connect(keeper).process([1])
     await coprocessor()
 
-    let pos = await perps.getPosition(1)
+    let pos = await endex.getPosition(1)
     expect(parseStatus(pos.status)).to.equal("Awaiting Settlement") // Awaiting Settlement — compare succeeded, no underflow
 
     // Settle; expect Liquidated
-    await perps.connect(keeper).process([1])
-    pos = await perps.getPosition(1)
+    await endex.connect(keeper).process([1])
+    pos = await endex.getPosition(1)
     expect(parseStatus(pos.status)).to.equal("Liquidated")
   })
 
@@ -101,15 +101,15 @@ describe('Endex — Liquidation', function () {
   // 2) Liquidations include funding at settlement
   // --------------------------------------------
   it('liquidated LONG under positive rate explicitly pays funding (actual ≈ baseline - size*dF/1e18)', async function () {
-    const { perps, perpsAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
+    const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
   
     // Pool & user
     await usdc.mint(lp.address, toUSDC(2_000_000n))
-    await usdc.connect(lp).approve(perpsAddr, hre.ethers.MaxUint256)
-    await perps.connect(lp).lpDeposit(toUSDC(2_000_000n))
+    await usdc.connect(lp).approve(endexAddr, hre.ethers.MaxUint256)
+    await endex.connect(lp).lpDeposit(toUSDC(2_000_000n))
   
     await usdc.mint(user.address, toUSDC(200_000n))
-    await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
+    await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
   
     // 1) Ensure POSITIVE rate: open a large LONG to bias skew => longs pay
@@ -117,9 +117,9 @@ describe('Endex — Liquidation', function () {
       const edL = await encryptBool(true);
       const esL = await encryptUint256(toUSDC(120_000n));
       
-      await openPosition(perps, keeper, user, edL, esL, toUSDC(24_000n))
+      await openPosition(endex, keeper, user, edL, esL, toUSDC(24_000n))
   
-      const r = await unsealEint256(await perps.fundingRatePerSecX18())
+      const r = await unsealEint256(await endex.fundingRatePerSecond())
       expect(r > 0n, 'expected positive funding rate (longs pay)').to.eq(true)
     }
   
@@ -129,38 +129,38 @@ describe('Endex — Liquidation', function () {
     const sizeL  = toUSDC(25_000n) // 5x
     const encDirectionL = await encryptBool(directionL);
     const encSizeL = await encryptUint256(sizeL);
-    await openPosition(perps, keeper, user, encDirectionL, encSizeL, collateralL)
+    await openPosition(endex, keeper, user, encDirectionL, encSizeL, collateralL)
   
     // Accrue funding meaningfully
     await time.increase(3 * 24 * 3600) // 3 days
-    await perps.pokeFunding()
+    await endex.pokeFunding()
   
     // Price low enough to liquidate, but still equity > 0 (baseline)
     // Entry 2000 → at 1619: pnl = 25k * (1619-2000)/2000 = -4,762.5 → equity ~ 237.5 > 0
     await feed.updateAnswer(price(1619n))
   
     // Snapshot funding delta for this position (id = 2)
-    const pos2_before = await perps.getPosition(2)
-    const cumLong = await unsealEint256(await perps.cumFundingLongX18())
+    const pos2_before = await endex.getPosition(2)
+    const cumLong = await unsealEint256(await endex.cumFundingLong())
     const entryFunding2 = await unsealEint256(pos2_before.entryFunding)
     let dF = cumLong - entryFunding2
     expect(dF > 0n, 'dF should be positive for longs when rate>0').to.eq(true)
   
     // Liquidation flow
     // Step 1: request liquidation checks (starts decrypts)
-    await perps.connect(keeper).process([2])
+    await endex.connect(keeper).process([2])
     await coprocessor()
     // Step 2: finalize; should pass liquidatable check and move to Awaiting Settlement
-    await perps.connect(keeper).process([2])
+    await endex.connect(keeper).process([2])
     await coprocessor()
   
     // Optional: avoid accrual drift
-    await perps.pokeFunding()
+    await endex.pokeFunding()
   
     // Settle and observe actual transfer
     const userStart = BigInt(await usdc.balanceOf(user.address))
     // Settle; expect Liquidated
-    await perps.connect(keeper).process([2])
+    await endex.connect(keeper).process([2])
     const userEnd = BigInt(await usdc.balanceOf(user.address))
     const actualPayout = userEnd - userStart
   
@@ -189,23 +189,23 @@ describe('Endex — Liquidation', function () {
   }).timeout(120000);
 
   it('liquidated SHORT under negative rate explicitly pays funding (actual ≈ baseline - size*dF/1e18)', async function () {
-    const { perps, perpsAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
+    const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
   
     // Pool & user
     await usdc.mint(lp.address, toUSDC(2_000_000n))
-    await usdc.connect(lp).approve(perpsAddr, hre.ethers.MaxUint256)
-    await perps.connect(lp).lpDeposit(toUSDC(2_000_000n))
+    await usdc.connect(lp).approve(endexAddr, hre.ethers.MaxUint256)
+    await endex.connect(lp).lpDeposit(toUSDC(2_000_000n))
   
     await usdc.mint(user.address, toUSDC(200_000n))
-    await usdc.connect(user).approve(perpsAddr, hre.ethers.MaxUint256)
+    await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
   
     // Ensure NEGATIVE rate: open a large SHORT only to bias skew (shorts pay)
     {
       const eD = await encryptBool(false);
       const eS = await encryptUint256(toUSDC(150_000n))
-      await openPosition(perps, keeper, user, eD, eS, toUSDC(30_000n))
-      const rate = await unsealEint256(await perps.fundingRatePerSecX18())
+      await openPosition(endex, keeper, user, eD, eS, toUSDC(30_000n))
+      const rate = await unsealEint256(await endex.fundingRatePerSecond())
       expect(rate < 0n, 'expected negative funding rate (shorts pay)').to.eq(true)
     }
   
@@ -215,11 +215,11 @@ describe('Endex — Liquidation', function () {
     const sizeS  = toUSDC(30_000n) // 5x
     const encDirectionS = await encryptBool(directionS);
     const encSizeS = await encryptUint256(sizeS);
-    await openPosition(perps, keeper, user, encDirectionS, encSizeS, collateralS)
+    await openPosition(endex, keeper, user, encDirectionS, encSizeS, collateralS)
   
     // Accrue funding for a bit
     await time.increase(6 * 3600) // 6h
-    await perps.pokeFunding()
+    await endex.pokeFunding()
   
     // Pick price that liquidates but leaves positive baseline equity
     // For E=2000, size=30k, coll=6k: P=2390 → equity ≈ 150 (positive), maintenance > 150 → liquidate
@@ -227,23 +227,23 @@ describe('Endex — Liquidation', function () {
   
     // Liquidation flow -> Awaiting Settlement
     // Step 1: request liquidation checks (starts decrypts)
-    await perps.connect(keeper).process([2])
+    await endex.connect(keeper).process([2])
     await coprocessor()
     // Step 2: finalize; should pass liquidatable check and move to Awaiting Settlement
-    await perps.connect(keeper).process([2])
+    await endex.connect(keeper).process([2])
     await coprocessor()
   
     // Freeze funding at settlement boundary and compute dF for the short
-    await perps.pokeFunding()
-    const pos = await perps.getPosition(2)
+    await endex.pokeFunding()
+    const pos = await endex.getPosition(2)
     const entryFunding = await unsealEint256(pos.entryFunding)
-    const cumShortNow  = await unsealEint256(await perps.cumFundingShortX18())
+    const cumShortNow  = await unsealEint256(await endex.cumFundingShort())
     const dF = cumShortNow - entryFunding
     expect(dF > 0n, 'short dF should be positive under negative rate').to.eq(true)
   
     // Settle; measure only settlement effect on user balance
     const userStart = BigInt(await usdc.balanceOf(user.address))
-    await perps.connect(keeper).process([2])
+    await endex.connect(keeper).process([2])
     const userEnd = BigInt(await usdc.balanceOf(user.address))
     const actualPayout = userEnd - userStart
   

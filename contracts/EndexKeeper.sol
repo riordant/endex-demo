@@ -7,7 +7,6 @@ abstract contract EndexKeeper is EndexBase {
     using FHEHelpers for *;
     using SafeERC20 for IERC20;
 
-    //function process(uint256[] calldata positionIds) external onlyKeeper {
     function process(uint256[] calldata positionIds) external {
         uint256 price = _markPrice();
 
@@ -19,16 +18,9 @@ abstract contract EndexKeeper is EndexBase {
             Position storage p = positions[id];
             Validity storage v = p.validity;
 
-            console.log("p.collateral:");
-            console.log(p.collateral);
-
             // Requested: user requested to open a new position. check validity of parameters on the coprocessor.
             if(p.status == Status.Requested) {
                 (bool requestValid, bool ready) = FHE.getDecryptResultSafe(v.requestValid);
-                console.log('requestValid:');
-                console.log(requestValid);
-                console.log('ready:');
-                console.log(ready);
                 if(!ready) continue;
                 
                 // openPosition request check passed: move to Pending.
@@ -44,19 +36,15 @@ abstract contract EndexKeeper is EndexBase {
             
             // Pending: requested open position passed parameter checks. start validating position against encrypted entry price.
             if(p.status == Status.Pending) {
-                console.log("check pending..");
-                // ignore 'ready' here; this also allows the flow to check entry price immediately when coming from Requested state,
-                // and set pending as done immediately should the entry price be in-range.
+                // ignore 'ready' here; this allows the flow to check entry price immediately when coming from Requested state,
+                // and set pending as done in the next call should the entry price be in-range.
                 (bool pendingDone,) = FHE.getDecryptResultSafe(v.pendingDone);
-                console.log("pendingDone:");
-                console.log(pendingDone);
                 
                 // entry price range checks passed; move to Open.
                 if(pendingDone) {
                     _openPositionFinalize(p, price);
                     p.status = Status.Open;
                 } else {
-                    console.log("check entry price..");
                     _checkEntryPrice(p, v, price);
                 }
             }
@@ -64,10 +52,6 @@ abstract contract EndexKeeper is EndexBase {
             // Open: Mark price in-range, begin liquidation checks. 
             if(p.status == Status.Open) {
                 (bool toBeLiquidated, bool ready) = FHE.getDecryptResultSafe(v.toBeLiquidated);
-                console.log("toBeLiquidated:");
-                console.log(toBeLiquidated);
-                console.log("ready:");
-                console.log(ready);
                 if(!ready) continue;
                 
                 if(!toBeLiquidated) {
@@ -79,7 +63,7 @@ abstract contract EndexKeeper is EndexBase {
 
             // AwaitingSettlement: Position has reached the conditions for closed/liquidated. Await async call from CoFHE to settle.
             if(p.status == Status.AwaitingSettlement) {
-                bool settled = _settle(id);
+                bool settled = _settlementFinalize(id);
                 if(settled) {
                     p.status = (p.cause == CloseCause.Liquidation) ? Status.Liquidated : Status.Closed;
                 }
@@ -92,25 +76,21 @@ abstract contract EndexKeeper is EndexBase {
     function _returnUserFunds(Position storage p, Validity storage v) private {
         if(!v.removed) { 
             pendingCollateral -= p.collateral;
-            usdc.safeTransfer(p.owner, p.collateral);
+            underlying.safeTransfer(p.owner, p.collateral);
             v.removed = true;
         }
     }
 
     function _checkEntryPrice(Position storage p, Validity storage v, uint256 price_) private {
         Range storage entryRange = p.entryPriceRange;
+
         euint256 price = FHE.asEuint256(price_);
         ebool markGTE = FHE.gte(price, entryRange.low);
         ebool markLTE = FHE.lte(price, entryRange.high);
         v.pendingDone = FHE.and(markGTE, markLTE);
+
         // decrypt and make pendingDone available to all users
         FHE.allowGlobal(v.pendingDone);
         FHE.decrypt(v.pendingDone);
-        console.log("decrypted pendingDone..");
-    }
-
-    modifier onlyKeeper {
-        require(msg.sender == keeper, "only keeper");
-        _;
     }
 }

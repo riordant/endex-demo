@@ -6,7 +6,7 @@ import "./EndexBase.sol";
 abstract contract EndexFunding is EndexBase {
     using FHEHelpers for *;
 
-    /// @notice Accrue cumulative funding using current fundingRatePerSecX18.
+    /// @notice Accrue cumulative funding using current fundingRatePerSecond.
     function _pokeFunding() internal override {
         uint256 nowTs = block.timestamp;
         if (nowTs == lastFundingUpdate) return;
@@ -14,48 +14,41 @@ abstract contract EndexFunding is EndexBase {
         uint256 dt = nowTs - lastFundingUpdate;
         lastFundingUpdate = nowTs;
 
-        euint256 bump = FHE.mul(fundingRatePerSecX18.val, FHE.asEuint256(dt));
+        euint256 bump = FHE.mul(fundingRatePerSecond.val, FHE.asEuint256(dt));
 
         // long side accrues +rate; short side accrues -rate
-        FHEHelpers._encAddSigned(cumFundingLongX18,  fundingRatePerSecX18.sign,                     bump);
-        FHEHelpers._encAddSigned(cumFundingShortX18, FHEHelpers._ebNot(fundingRatePerSecX18.sign),  bump);
+        FHEHelpers.encAddSigned(cumFundingLong,  fundingRatePerSecond.sign,           bump);
+        FHEHelpers.encAddSigned(cumFundingShort, FHE.not(fundingRatePerSecond.sign),  bump);
 
-        _allowFunding();
+        FHEHelpers.allowThis(cumFundingLong);
+        FHEHelpers.allowThis(cumFundingShort);
     }
 
-    /// @dev Derive encrypted fundingRatePerSecX18 from encrypted skew and clamp |rate|.
+    /// @dev Derive encrypted fundingRatePerSecond from encrypted skew and clamp |rate|.
     /// @dev Call this AFTER any change to long/short OI.
     function _setFundingRateFromSkew() internal override {
-
-        console.log("set funding rate from skew..");
-        // abs skew and sign
+        // abs skew & sign (long-heavy => sign=true)
         ebool skewGE = FHE.gte(encLongOI, encShortOI);
-        euint256 encMax = FHE.select(skewGE, encLongOI, encShortOI);
-        euint256 encMin = FHE.select(skewGE, encShortOI, encLongOI);
-        euint256 absSkew = FHE.sub(encMax, encMin);
+        euint256 max = FHE.select(skewGE, encLongOI, encShortOI);
+        euint256 min = FHE.select(skewGE, encShortOI, encLongOI);
+        euint256 absSkew = FHE.sub(max, min); // 1e6
+    
+        // total OI (avoid div-by-zero)
+        euint256 totalOI = FHE.add(encLongOI, encShortOI); // 1e6
+        ebool isZero     = FHE.eq(totalOI, ZERO);
+        euint256 denom   = FHE.select(isZero, ONE, totalOI);
+    
+        // fracX18 = (absSkew / totalOI) in X18
+        euint256 numer   = FHE.mul(absSkew, ONE_X18);
+        euint256 fracX18 = FHE.div(numer, denom); // 0..1e18 range
+    
+        // rate = frac * MAX_RATE  (both X18/sec)  => divide by 1e18 to keep X18
+        euint256 maxRate = FHE.asEuint256(MAX_ABS_FUNDING_RATE_PER_SEC_X18); // X18/sec
+        euint256 prod    = FHE.mul(fracX18, maxRate);          // X36
+        euint256 rateMag = FHE.div(prod, ONE_X18); // X18/sec
+    
+        fundingRatePerSecond = eint256({ sign: skewGE, val: rateMag });
 
-        // scale skew to rate magnitude; use 1e6 factor so units match
-        euint256 rateMag = FHE.mul(absSkew, FHE.asEuint256(1e6));
-
-        // clamp
-        euint256 rateEnc = FHE.asEuint256(MAX_ABS_FUNDING_RATE_PER_SEC_X18);
-        ebool over = FHE.gte(rateMag, rateEnc);
-        euint256 magClamped = FHE.select(over, rateEnc, rateMag);
-
-        fundingRatePerSecX18 = eint256({ sign: skewGE, val: magClamped });
-        _allowFunding();
-    }
-
-    // allow all encrypted funding vars
-    function _allowFunding() internal {
-        FHEHelpers._allowEint256(fundingRatePerSecX18);
-        FHEHelpers._allowEint256(cumFundingLongX18);
-        FHEHelpers._allowEint256(cumFundingShortX18);
-
-        // TODO remove; for testing
-        FHE.decrypt(fundingRatePerSecX18.val);
-        FHE.decrypt(fundingRatePerSecX18.sign);
-        FHE.allowGlobal(fundingRatePerSecX18.val);
-        FHE.allowGlobal(fundingRatePerSecX18.sign);
+        FHEHelpers.allowThis(fundingRatePerSecond);
     }
 }

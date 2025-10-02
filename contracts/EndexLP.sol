@@ -15,7 +15,7 @@ abstract contract EndexLP is EndexBase {
 
     function lpDeposit(uint256 amount) external {
         require(amount > 0, "amount=0");
-        usdc.safeTransferFrom(msg.sender, address(this), amount);
+        underlying.safeTransferFrom(msg.sender, address(this), amount);
         uint256 shares = totalLpShares == 0 ? amount : (amount * totalLpShares) / totalLiquidity;
         lpShares[msg.sender] += shares;
         totalLpShares += shares;
@@ -29,7 +29,7 @@ abstract contract EndexLP is EndexBase {
         lpShares[msg.sender] -= shares;
         totalLpShares -= shares;
         totalLiquidity -= amount;
-        usdc.safeTransfer(msg.sender, amount);
+        underlying.safeTransfer(msg.sender, amount);
         emit LpWithdraw(msg.sender, shares, amount);
     }
 }

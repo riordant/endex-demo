@@ -7,18 +7,18 @@ import "../Endex.sol";
 // Makes global encrypted vars available to be decrypted via cofhe.unseal in tests.
 // also exposes functions that should be kept internal, but we need exposed for tests.
 contract EndexHarness is Endex {
-    constructor(IERC20 _usdc, IAggregatorV3 _ethUsdFeed, address keeper) Endex(_usdc, _ethUsdFeed, keeper) {
-        _allowFunding_Global_();
+    constructor(IERC20 _usdc, IAggregatorV3 _feed) Endex(_usdc, _feed) {
+        _allowGlobalMock();
     }
 
     function setFundingRateFromSkew() public {
         _setFundingRateFromSkew();
-        _allowFunding_Global_();
+        _allowGlobalMock();
     }
 
     function pokeFunding() public {
         _pokeFunding();
-        _allowFunding_Global_();
+        _allowGlobalMock();
     }
 
     function openPositionRequest(
@@ -33,21 +33,27 @@ contract EndexHarness is Endex {
             entryPriceRange_,
             collateral
         );
-        _allowFunding_Global_();
-        Position storage position = positions[nextPositionId-1];
-        _allowEint256_Global(position.entryFunding);
+        _allowGlobalMock();
     }
 
-    function _allowFunding_Global_() internal {
-        _allowEint256_Global_(fundingRatePerSecX18);
-        _allowEint256_Global_(cumFundingLongX18);
-        _allowEint256_Global_(cumFundingShortX18);
+    function _openPositionFinalize(
+        Position storage p,
+        uint256 price
+    ) internal override(EndexBase, EndexTrading) {
+        __openPositionFinalize(
+            p,
+            price
+        );
+        _allowGlobalMock();
+        FHEHelpers.allowGlobal(p.entryFunding);
+        FHEHelpers.allowGlobal(p.entryImpact);
+    }
+
+    function _allowGlobalMock() internal {
+        FHEHelpers.allowGlobal(fundingRatePerSecond);
+        FHEHelpers.allowGlobal(cumFundingLong);
+        FHEHelpers.allowGlobal(cumFundingShort);
         FHE.allowGlobal(encLongOI);
         FHE.allowGlobal(encShortOI);
-    }
-
-    function _allowEint256_Global_(eint256 storage a) internal {
-        FHE.allowGlobal(a.sign);
-        FHE.allowGlobal(a.val);
     }
 }

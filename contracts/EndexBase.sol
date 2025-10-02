@@ -35,10 +35,10 @@ abstract contract EndexBase {
     // SHARED STRUCTS
     // ===============================
     struct Validity {
-        ebool requestValid;
-        bool removed;
-        ebool pendingDone;
-        ebool toBeLiquidated;
+        ebool requestValid;   // Requested -> Pending flag
+        ebool pendingDone;    // Pending -> Open flag
+        ebool toBeLiquidated; // Open -> AwaitingSettlement -> Liquidated flag
+        bool removed;         // Requested -> removed flag (not an explicit state for simplicity)
     }
 
     struct Range {
@@ -50,19 +50,19 @@ abstract contract EndexBase {
         address  owner;
         uint256  positionId;
         ebool    isLong;
-        euint256 size;            // notional in USDC (6 decimals, encrypted)
+        euint256 size;            // notional in underlying (6 decimals, encrypted)
         Range    entryPriceRange; // Chainlink price range (encrypted)
-        uint256  collateral;      // USDC (6 decimals, plaintext)
+        uint256  collateral;      // underlying amount (6 decimals, plaintext)
         eint256 entryFunding;     // Funding index snapshot (X18, encrypted signed)
         eint256 entryImpact;      // Encrypted price impact (X18, encrypted signed)
 
         // plaintext prices
-        uint256  entryPrice;                // price when Open
+        uint256  entryPrice;
         uint256  pendingLiquidationPrice;
         uint256  settlementPrice;
 
         // Settlement path: encrypted equity (X18) awaiting decrypt in _settle
-        euint256 pendingEquityX18;
+        euint256 pendingEquity;
 
         Validity validity;
         Status     status;
@@ -72,30 +72,38 @@ abstract contract EndexBase {
     // ===============================
     // SHARED CONSTANTS
     // ===============================
-    uint256 public constant CLOSE_FEE_BPS                    = 10;     // 0.1% close fee
-    uint256 public constant BPS_DIVISOR                      = 10_000;
-    uint256 public constant ONE_X18                          = 1e18;
-    uint256 public constant MAX_ABS_FUNDING_RATE_PER_SEC_X18 = 1e9;    // ~0.0864%/day
+    uint256 public constant BPS_DIVISOR                      = 10_000;  // 100%
+    uint256 public constant CLOSE_FEE_BPS                    = 10;      // 0.1% close fee
+    uint256 public constant MAX_ABS_FUNDING_RATE_PER_SEC_X18 = 1e10;    // ~0.0864%/day (X18 scale)
 
     // ===============================
     // SHARED IMMUTABLES
     // ===============================
-    IERC20 public immutable usdc;              // 6 decimals
-    IAggregatorV3 public immutable ethUsdFeed; // 8 decimals
+    IERC20 public immutable underlying;        // 6 decimals
+    IAggregatorV3 public immutable feed; // 8 decimals
     address public immutable keeper;
+
+    // encrypted ciphertexts (immutable)
+    ebool public immutable TRUE;                // true
+    ebool public immutable FALSE;               // false
+    euint256 public immutable ZERO;             // 0
+    euint256 public immutable ONE;              // 1
+    euint256 public immutable TWO;              // 2
+    euint256 public immutable ONE_X18;          // 1e18
+    euint256 public immutable MAINT_MARGIN_BPS; // 1e16: 1% (BPS -> X18)
 
     // ===============================
     // SHARED VARIABLES
     // ===============================
-    // LP accounting
-    uint256 public totalLiquidity; // pool USDC (6d)
-    uint256 public totalCollateral; // pool collateral (6d)
+    // -------- LP accounting --------
+    uint256 public totalLiquidity;    // pool liquidity (6d)
+    uint256 public totalCollateral;   // pool collateral (6d)
     uint256 public pendingCollateral; // pending pool collateral (6d)
 
     // -------- Funding state --------
-    eint256  public fundingRatePerSecX18;
-    eint256  public cumFundingLongX18;
-    eint256  public cumFundingShortX18;
+    eint256  public fundingRatePerSecond; // X18, encrypted signed
+    eint256  public cumFundingLong;       // X18, encrypted signed
+    eint256  public cumFundingShort;      // X18, encrypted signed
     uint256  public lastFundingUpdate;
 
     // -------- Encrypted OI aggregates --------
@@ -110,27 +118,41 @@ abstract contract EndexBase {
     // ===============================
     // CONSTRUCTOR
     // ===============================
-    constructor(IERC20 _usdc, IAggregatorV3 _ethUsdFeed, address _keeper) {
-        usdc = _usdc;
-        ethUsdFeed = _ethUsdFeed;
-        keeper = _keeper;
+    constructor(IERC20 _underlying, IAggregatorV3 _feed) {
+        underlying = _underlying;
+        feed = _feed;
 
         lastFundingUpdate = block.timestamp;
 
-        encLongOI = FHEHelpers._zero();
-        encShortOI = FHEHelpers._zero();
+        // Generate ciphertext constants
+        TRUE = FHE.asEbool(true);
+        FALSE = FHE.asEbool(false);
+        ZERO = FHE.asEuint256(0);
+        ONE = FHE.asEuint256(1);
+        TWO = FHE.asEuint256(2);
+        ONE_X18 = FHE.asEuint256(1e18);
+        MAINT_MARGIN_BPS = FHE.asEuint256(1e16);
+        
+        // Generate ciphertext variables
+        encLongOI = ZERO;
+        encShortOI = ZERO;
+        fundingRatePerSecond = eint256({ sign: TRUE, val: ZERO }); // +0
+        cumFundingLong       = eint256({ sign: TRUE, val: ZERO });
+        cumFundingShort      = eint256({ sign: TRUE, val: ZERO });
 
-        // init encrypted signed states as zero
-        fundingRatePerSecX18 = eint256({ sign: FHE.asEbool(true), val: FHEHelpers._zero() }); // +0
-        cumFundingLongX18    = eint256({ sign: FHE.asEbool(true), val: FHEHelpers._zero() });
-        cumFundingShortX18   = eint256({ sign: FHE.asEbool(true), val: FHEHelpers._zero() });
-
-        // Permissions for ciphertexts used by this contract
+        // Permissions for ciphertexts
+        FHE.allowThis(TRUE);
+        FHE.allowThis(FALSE);
+        FHE.allowThis(ZERO);
+        FHE.allowThis(ONE);
+        FHE.allowThis(TWO);
+        FHE.allowThis(ONE_X18);
+        FHE.allowThis(MAINT_MARGIN_BPS);
         FHE.allowThis(encLongOI);
         FHE.allowThis(encShortOI);
-        FHEHelpers._allowEint256(fundingRatePerSecX18);
-        FHEHelpers._allowEint256(cumFundingLongX18);
-        FHEHelpers._allowEint256(cumFundingShortX18);
+        FHEHelpers.allowThis(fundingRatePerSecond);
+        FHEHelpers.allowThis(cumFundingLong);
+        FHEHelpers.allowThis(cumFundingShort);
     }
     
     // ===============================
@@ -142,13 +164,13 @@ abstract contract EndexBase {
     function _setFundingRateFromSkew() internal virtual;
 
     // Impact
-    function _impactEntryBucketsAtOpen(
+    function _impactEntryBucketAtOpen(
         ebool isLong,
         euint256 encSize,
         uint256 oraclePrice
     ) internal virtual returns (eint256 memory entryImpact);
 
-    function _impactExitBucketsAtClose(
+    function _impactExitBucketAtClose(
         Position storage p,
         uint256 oraclePrice
     ) internal virtual returns (eint256 memory exitImpact);
@@ -159,16 +181,16 @@ abstract contract EndexBase {
     function _liquidationFinalize(uint256 positionId) internal virtual;
 
     // Settlement
-    function _settle(uint256 positionId) internal virtual returns(bool /* settled */);
+    function _settlementFinalize(uint256 positionId) internal virtual returns(bool /* settled */);
 
-    function _setupSettlement(uint256 positionId, uint256 settlementPrice) internal virtual;
+    function _settlementInitialize(uint256 positionId, uint256 settlementPrice) internal virtual;
 
-    function _pnlBuckets(
+    function _pnlBucket(
         Position storage p,
         uint256 price
     ) internal virtual returns (eint256 memory pnl);
 
-    function _fundingBuckets(
+    function _fundingBucket(
         Position storage p
     ) internal virtual returns (eint256 memory funding);
 

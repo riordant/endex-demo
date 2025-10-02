@@ -7,12 +7,9 @@ abstract contract EndexTrading is EndexBase {
     using FHEHelpers for *;
     using SafeERC20 for IERC20;
 
-    // ===============================
-    // CONSTANTS
-    // ===============================
     uint256 public constant MAX_LEVERAGE_X     =    5; // 5x
-    uint256 public constant MIN_NOTIONAL_USDC  = 10e6; // 10 USDC (6d)
-    uint256 public constant PRICE_RANGE_BUFFER =  1e8; // 1 USDC (8d)
+    uint256 public constant MIN_SIZE           = 10e6; // 10 underlying (6d)
+    uint256 public constant PRICE_RANGE_BUFFER =  1e8; // 1 underlying (8d)
 
     uint256 public nextPositionId = 1;
 
@@ -42,7 +39,6 @@ abstract contract EndexTrading is EndexBase {
         uint256 collateral
     ) internal {
         _pokeFunding();
-        uint256 price = _markPrice();
 
         // get inputs 
         ebool isLong = FHE.asEbool(isLong_);
@@ -53,18 +49,18 @@ abstract contract EndexTrading is EndexBase {
         });
 
         // validations: size, and entry price range
-        ebool sizeValid = _validateSize(size, collateral);
-        ebool rangeValid = _validateRange(range);
+        ebool sizeValid    = _validateSize(size, collateral);
+        ebool rangeValid   = _validateRange(range);
         ebool requestValid = FHE.and(sizeValid, rangeValid);
         Validity memory validity = Validity({
             requestValid: requestValid,
-            removed: false,
-            pendingDone: FHE.asEbool(false),
-            toBeLiquidated: FHE.asEbool(false)
+            pendingDone: FALSE,
+            toBeLiquidated: FALSE,
+            removed: false
         });
 
         // Pull collateral into pendingCollateral
-        usdc.safeTransferFrom(msg.sender, address(this), collateral);
+        underlying.safeTransferFrom(msg.sender, address(this), collateral);
         pendingCollateral += collateral;
 
         // set position
@@ -72,79 +68,71 @@ abstract contract EndexTrading is EndexBase {
         positions[id] = Position({
             owner: msg.sender,
             positionId: id,
-            validity: validity,
             isLong: isLong,
             size: size,
-            collateral: collateral,
-            entryPrice: uint256(price),
             entryPriceRange: range,
-            settlementPrice: 0,
-            status: Status.Requested,
-            cause: CloseCause.UserClose, // default
-            entryFunding: FHEHelpers._zeroEint256(),
+            collateral: collateral,
+            entryFunding: FHEHelpers.zeroEint256(),
+            entryImpact: FHEHelpers.zeroEint256(),
+            entryPrice: 0,
             pendingLiquidationPrice: 0,
-            entryImpact: FHEHelpers._zeroEint256(),
-            pendingEquityX18: FHEHelpers._zero()
+            settlementPrice: 0,
+            pendingEquity: ZERO,
+            validity: validity,
+            status: Status.Requested,
+            cause: CloseCause.UserClose // default
         });
         
         // FHE allow position
-        _allowPosition(positions[id]);
+        _allowPositionRequest(positions[id]);
     }
 
     function _openPositionFinalize(
         Position storage p,
         uint256 price
-    ) internal override {
-        console.log("open position finalize..");
+    ) internal virtual override {
+        __openPositionFinalize(
+            p,
+            price
+        );
+    }
+
+    function __openPositionFinalize(
+        Position storage p,
+        uint256 price
+    ) internal {
         // Put collateral into total
         pendingCollateral -= p.collateral;
         totalCollateral += p.collateral;
 
-        // --- Entry price impact buckets (encrypted) BEFORE updating OI ---
-        eint256 memory entryImpact = _impactEntryBucketsAtOpen(p.isLong, p.size, price);
+        // --- Entry price impact bucket (encrypted) BEFORE updating OI ---
+        eint256 memory entryImpact = _impactEntryBucketAtOpen(p.isLong, p.size, price);
 
         // Snapshot entry funding (encrypted signed)
-        eint256 memory entryFunding = FHEHelpers._selectEint(p.isLong, cumFundingLongX18, cumFundingShortX18);
+        eint256 memory entryFunding = FHEHelpers.select(p.isLong, cumFundingLong, cumFundingShort);
 
         // Update encrypted OI aggregates (AFTER recording entry impact based on pre-trade OI)
         // both values updated for privacy
         // (isLong) ? encLongOI += size : encShortOI += size
-        console.log("update OI..");
-        encLongOI = FHE.add(encLongOI, FHE.select(p.isLong, p.size, FHEHelpers._zero()));
-        encShortOI = FHE.add(encShortOI, FHE.select(p.isLong, FHEHelpers._zero(), p.size));
+        encLongOI  = FHE.add( encLongOI, FHE.select(p.isLong, p.size, ZERO));
+        encShortOI = FHE.add(encShortOI, FHE.select(p.isLong, ZERO, p.size));
 
         // Update funding rate for future accruals
-        console.log("update skew..");
         _setFundingRateFromSkew();
 
         // set values back on the position
         p.entryPrice = price;
         p.entryFunding = entryFunding;
         p.entryImpact = entryImpact;
-
-        // TODO: global is just for tests, and allowPosition not everything is needed.
-        _allowFunding_Global();
-        _allowPosition(p);
+        
+        // allow updated values
+        _allowPositionFinalize(p);
     }
 
-    function _allowFunding_Global() internal {
-        _allowEint256_Global(fundingRatePerSecX18);
-        _allowEint256_Global(cumFundingLongX18);
-        _allowEint256_Global(cumFundingShortX18);
-        FHE.allowGlobal(encLongOI);
-        FHE.allowGlobal(encShortOI);
-    }
-
-    function _allowEint256_Global(eint256 storage a) internal {
-        FHE.allowGlobal(a.sign);
-        FHE.allowGlobal(a.val);
-    }
-
-
-    /// @dev Validate MIN_NOTIONAL_USDC <= size <= collateral * MAX_LEVERAGE_X.
+    /// @dev Validate MIN_SIZE <= size <= collateral * MAX_LEVERAGE_X.
     function _validateSize(euint256 _size, uint256 collateral) internal returns (ebool) {
         // 
-        euint256 min = FHE.asEuint256(MIN_NOTIONAL_USDC);
+        euint256 min = FHE.asEuint256(MIN_SIZE);
         euint256 max = FHE.asEuint256(collateral * MAX_LEVERAGE_X);
 
         ebool sizeGTE = FHE.gte(_size, min);
@@ -159,7 +147,7 @@ abstract contract EndexTrading is EndexBase {
         return FHE.lt(buffer, _range.high);
     }
 
-    function _allowPosition(Position storage p) internal {
+    function _allowPositionRequest(Position storage p) internal {
         Validity storage v = p.validity;
         Range storage er = p.entryPriceRange;
 
@@ -180,10 +168,17 @@ abstract contract EndexTrading is EndexBase {
         FHE.allowThis(er.low);
         FHE.allowThis(er.high);
 
-        FHE.allowThis(p.pendingEquityX18);
-        FHE.allowGlobal(p.pendingEquityX18);
-        FHEHelpers._allowEint256(p.entryFunding);
-        FHEHelpers._allowEint256(p.entryImpact);
+        FHE.allowThis(p.pendingEquity);
+        FHE.allowGlobal(p.pendingEquity);
+        FHEHelpers.allowThis(p.entryFunding);
+        FHEHelpers.allowThis(p.entryImpact);
+    }
+
+    function _allowPositionFinalize(Position storage p) internal {
+        FHE.allowThis(encLongOI);
+        FHE.allowThis(encShortOI);
+        FHEHelpers.allowThis(p.entryFunding);
+        FHEHelpers.allowThis(p.entryImpact);
     }
 
     function closePosition(uint256 positionId) external {
@@ -191,7 +186,7 @@ abstract contract EndexTrading is EndexBase {
         require(p.owner == msg.sender, "not owner");
         require(p.status == Status.Open, "not open");
         p.cause = CloseCause.UserClose;
-        _setupSettlement(positionId, _markPrice());
+        _settlementInitialize(positionId, _markPrice());
     }
 
     function settlePositions(uint256[] calldata positionIds) external {
@@ -199,7 +194,7 @@ abstract contract EndexTrading is EndexBase {
             uint256 id = positionIds[i];
             Position storage p = positions[id];
             if (p.status != Status.AwaitingSettlement) continue;
-            _settle(id);
+            _settlementFinalize(id);
         }
     }
 
