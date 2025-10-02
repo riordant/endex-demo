@@ -30,6 +30,7 @@ library FHEHelpers {
     }
 
     // ---------- Encrypted-boolean helpers (no plain bool branching) ----------
+
     // r = r (+/-) (bSign ? +bVal : -bVal)
     function _encAddSigned(eint256 storage r, ebool bSign, euint256 bVal) internal {
         (ebool s, euint256 v) = _encAddSignedPair(r.sign, r.val, bSign, bVal);
@@ -37,6 +38,10 @@ library FHEHelpers {
         r.val  = v;
     }
     
+    function _encAddSigned(eint256 memory a, eint256 memory b) internal returns (eint256 memory c) {
+        (c.sign, c.val) = _encAddSignedPair(a.sign, a.val, b.sign, b.val);
+    }
+
     // a - b = a + (-b)
     function _encSubSigned(eint256 memory a, eint256 memory b) internal returns (eint256 memory c) {
         ebool negBsign = _ebNot(b.sign);

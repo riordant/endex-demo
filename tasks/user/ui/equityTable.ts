@@ -32,13 +32,6 @@ async function unsealUintX18(cofhejs: any, FheTypes: any, sealed: any) {
   return BigInt(0);
 }
 
-// “gain − loss” to signed $ string (from X18)
-function fmtNetX18(gainX18: any, lossX18: any): string {
-  if (gainX18 === null || lossX18 === null) return "—";
-  const net = BigInt(gainX18) - BigInt(lossX18);
-  return fmtPnl(div1e18(net));
-}
-
 export async function drawEquityTable(deps: Deps) {
   const { endex, signer, knownIds, market, getPendingEquity, cofhejs, FheTypes } = deps;
 
@@ -52,11 +45,6 @@ export async function drawEquityTable(deps: Deps) {
     col("IMPACT (EXIT)",   18) +   // exitImpact (gain-loss)
     col("CLOSE FEE",       16)
   );
-
-
-  let frEnc = await endex.fundingRatePerSecX18();
-  console.log("fundingRatePerSecX18:");
-  let fr = await unsealEint256(frEnc);
 
   for (const id of knownIds) {
     // Skip if status < Open
@@ -74,17 +62,13 @@ export async function drawEquityTable(deps: Deps) {
     const eqNetX18     = await unsealUintX18(cofhejs, FheTypes, peq.equityNet);
     const feeX18       = await unsealUintX18(cofhejs, FheTypes, peq.closeFee);
 
-    const pnlGainX18   = await unsealUintX18(cofhejs, FheTypes, peq.pnl.gainX18);
-    const pnlLossX18   = await unsealUintX18(cofhejs, FheTypes, peq.pnl.lossX18);
+    const pnlX18   = await unsealEint256(peq.pnl);
 
-    const fundGainX18  = await unsealUintX18(cofhejs, FheTypes, peq.funding.gainX18);
-    const fundLossX18  = await unsealUintX18(cofhejs, FheTypes, peq.funding.lossX18);
+    const fundX18  = await unsealEint256(peq.funding);
 
-    const entGainX18   = await unsealUintX18(cofhejs, FheTypes, peq.entryImpact.gainX18);
-    const entLossX18   = await unsealUintX18(cofhejs, FheTypes, peq.entryImpact.lossX18);
+    const entX18   = await unsealEint256(peq.entryImpact);
 
-    const exitGainX18  = await unsealUintX18(cofhejs, FheTypes, peq.exitImpact.gainX18);
-    const exitLossX18  = await unsealUintX18(cofhejs, FheTypes, peq.exitImpact.lossX18);
+    const exitX18   = await unsealEint256(peq.exitImpact);
 
     // Position label
     const positionCell = `${market} • #${id}`;
@@ -94,10 +78,10 @@ export async function drawEquityTable(deps: Deps) {
     console.log(
       col(positionCell,   28) +
       col(eqNetX18 !== null ? ("$" + fmtUSD6(finalEqNetX18)) : "—", 16) +
-      col(fmtNetX18(pnlGainX18,  pnlLossX18), 16) +
-      col(fmtNetX18(fundGainX18, fundLossX18), 16) +
-      col(fmtNetX18(entGainX18,  entLossX18), 18) +
-      col(fmtNetX18(exitGainX18, exitLossX18),18) +
+      col(fmtPnl(div1e18(pnlX18)), 16) +
+      col(fmtPnl(div1e18(fundX18)), 16) +
+      col(fmtPnl(div1e18(entX18)), 18) +
+      col(fmtPnl(div1e18(exitX18)), 18) +
       col(feeX18 !== null ? ("-$" + fmtUSD6(feeX18 as bigint)) : "—", 16)
     );
   }

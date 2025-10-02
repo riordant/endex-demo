@@ -7,6 +7,20 @@ abstract contract EndexTrading is EndexBase {
     using FHEHelpers for *;
     using SafeERC20 for IERC20;
 
+    // ===============================
+    // CONSTANTS
+    // ===============================
+    uint256 public constant MAX_LEVERAGE_X     =    5; // 5x
+    uint256 public constant MIN_NOTIONAL_USDC  = 10e6; // 10 USDC (6d)
+    uint256 public constant PRICE_RANGE_BUFFER =  1e8; // 1 USDC (8d)
+
+    uint256 public nextPositionId = 1;
+
+    struct InRange {
+        InEuint256 low;
+        InEuint256 high;
+    }
+
     function openPositionRequest(
         InEbool calldata isLong_,
         InEuint256 calldata size_,
@@ -67,10 +81,9 @@ abstract contract EndexTrading is EndexBase {
             settlementPrice: 0,
             status: Status.Requested,
             cause: CloseCause.UserClose, // default
-            entryFundingX18: FHEHelpers._zeroEint256(),
+            entryFunding: FHEHelpers._zeroEint256(),
             pendingLiquidationPrice: 0,
-            encImpactEntryGainX18: FHEHelpers._zero(),
-            encImpactEntryLossX18: FHEHelpers._zero(),
+            entryImpact: FHEHelpers._zeroEint256(),
             pendingEquityX18: FHEHelpers._zero()
         });
         
@@ -88,8 +101,7 @@ abstract contract EndexTrading is EndexBase {
         totalCollateral += p.collateral;
 
         // --- Entry price impact buckets (encrypted) BEFORE updating OI ---
-        (euint256 impGainX18, euint256 impLossX18) =
-            _encImpactEntryBucketsAtOpenX18(p.isLong, p.size, price);
+        eint256 memory entryImpact = _impactEntryBucketsAtOpen(p.isLong, p.size, price);
 
         // Snapshot entry funding (encrypted signed)
         eint256 memory entryFunding = FHEHelpers._selectEint(p.isLong, cumFundingLongX18, cumFundingShortX18);
@@ -107,9 +119,8 @@ abstract contract EndexTrading is EndexBase {
 
         // set values back on the position
         p.entryPrice = price;
-        p.entryFundingX18 = entryFunding;
-        p.encImpactEntryGainX18 = impGainX18;
-        p.encImpactEntryLossX18 = impLossX18;
+        p.entryFunding = entryFunding;
+        p.entryImpact = entryImpact;
 
         // TODO: global is just for tests, and allowPosition not everything is needed.
         _allowFunding_Global();
@@ -169,10 +180,10 @@ abstract contract EndexTrading is EndexBase {
         FHE.allowThis(er.low);
         FHE.allowThis(er.high);
 
-        FHE.allowThis(p.encImpactEntryGainX18);
-        FHE.allowThis(p.encImpactEntryLossX18);
         FHE.allowThis(p.pendingEquityX18);
-        FHEHelpers._allowEint256(p.entryFundingX18);
+        FHE.allowGlobal(p.pendingEquityX18);
+        FHEHelpers._allowEint256(p.entryFunding);
+        FHEHelpers._allowEint256(p.entryImpact);
     }
 
     function closePosition(uint256 positionId) external {

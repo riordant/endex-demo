@@ -9,6 +9,10 @@ abstract contract EndexLP is EndexBase {
     event LpDeposit(address indexed lp, uint256 amount, uint256 sharesMinted);
     event LpWithdraw(address indexed lp, uint256 shares, uint256 amountReturned);
 
+    // LP accounting
+    uint256 public totalLpShares;
+    mapping(address => uint256) public lpShares;
+
     function lpDeposit(uint256 amount) external {
         require(amount > 0, "amount=0");
         usdc.safeTransferFrom(msg.sender, address(this), amount);

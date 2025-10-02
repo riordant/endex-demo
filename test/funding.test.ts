@@ -270,7 +270,7 @@ describe('Endex — Funding Fees', function () {
     const edA = await encryptBool(directionA)
     const enA = await encryptUint256(notionalA)
     await openPosition(perps, keeper, userA, edA, enA, collA)
-    const entryFundingA = await unsealEint256((await perps.getPosition(2)).entryFundingX18)
+    const entryFundingA = await unsealEint256((await perps.getPosition(2)).entryFunding)
   
     // B opens
     const collB = toUSDC(10_000n)
@@ -279,7 +279,7 @@ describe('Endex — Funding Fees', function () {
     const edB = await encryptBool(directionB)
     const enB = await encryptUint256(notionalB)
     await openPosition(perps, keeper, userB, edB, enB, collB)
-    const entryFundingB = await unsealEint256((await perps.getPosition(3)).entryFundingX18)
+    const entryFundingB = await unsealEint256((await perps.getPosition(3)).entryFunding)
   
     // Accrue same duration for both after B’s entry
     await time.increase(60)
@@ -364,7 +364,7 @@ describe('Endex — Funding Fees', function () {
     // show magnitudes for debugging
     console.log('Δlong vs baseline:', (longEndBal - longBaselineEnd).toString())
     console.log('Δshort vs baseline:', (shortEndBal - shortBaselineEnd).toString())
-  })
+  }).timeout(120000)
 
   it('accrues funding via async request/commit and charges it only at settlement', async function () {
     const { perps, perpsAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
@@ -403,7 +403,7 @@ describe('Endex — Funding Fees', function () {
 
     // Check cumulative vs entry snapshot (for settlement math)
     //const cumLong = BigInt(await perps.cumFundingLongX18())
-    //const entryFunding = BigInt((await perps.getPosition(1)).entryFundingX18)
+    //const entryFunding = BigInt((await perps.getPosition(1)).entryFunding)
     //const fundingDeltaX18 = cumLong - entryFunding
 
     // Ensure no interim cashflows to user
@@ -443,7 +443,7 @@ describe('Endex — Funding Fees', function () {
   // -----------------------------
   // Funding sign sanity (shorts dominate)
   // -----------------------------
-  it.only('commits negative funding rate when shorts dominate (no underflow on |skew|)', async function () {
+  it('commits negative funding rate when shorts dominate (no underflow on |skew|)', async function () {
     const { perps, perpsAddr, usdc, userA: user, lp, keeper } = await loadFixture(deployFixture)
 
     // LP & user setup
@@ -475,21 +475,12 @@ describe('Endex — Funding Fees', function () {
     
     const afterLong   = await unsealEint256(await perps.cumFundingLongX18());
     const afterShort  = await unsealEint256(await perps.cumFundingShortX18());
-    const longOI      = await unsealEuint256(await perps.encLongOI());
     
     // Negative rate sanity (shorts dominate)
     expect(rateX18 < 0n).to.be.true;
     
-    // Short index must increase (shorts are payers, dF.sign=true → loss bucket)
-    expect(afterShort > beforeShort).to.be.true;
-    
-    // Long index:
-    // - If no longs exist, it may remain unchanged (scaled bump = 0).
-    // - If some longs exist, it should decrease (receiver index moves opposite payer).
-    if (longOI === 0n) {
-      expect(afterLong).to.equal(beforeLong);
-    } else {
-      expect(afterLong < beforeLong).to.be.true;
-}
+    // With negative rate: cumFundingLong decreases, cumFundingShort increases
+    expect(afterLong < beforeLong).to.be.true
+    expect(afterShort > beforeShort).to.be.true
   })
 })

@@ -17,7 +17,7 @@ abstract contract EndexFunding is EndexBase {
         euint256 bump = FHE.mul(fundingRatePerSecX18.val, FHE.asEuint256(dt));
 
         // long side accrues +rate; short side accrues -rate
-        FHEHelpers._encAddSigned(cumFundingLongX18,  fundingRatePerSecX18.sign,          bump);
+        FHEHelpers._encAddSigned(cumFundingLongX18,  fundingRatePerSecX18.sign,                     bump);
         FHEHelpers._encAddSigned(cumFundingShortX18, FHEHelpers._ebNot(fundingRatePerSecX18.sign),  bump);
 
         _allowFunding();

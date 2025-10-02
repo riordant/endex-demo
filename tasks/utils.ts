@@ -69,17 +69,8 @@ export async function decryptEuint256(e : any) {
 
 export async function unsealEint256(e : any) {
     const val = await cofhejs.unseal(e.val, FheTypes.Uint256);
-    if (!val.success) {
-        console.log("failed decrypt.");
-    }
     const sign = await cofhejs.unseal(e.sign, FheTypes.Bool);
-    if (!sign.success) {
-        console.log("failed decrypt.");
-    }
 
-    console.log("val.data:", val.data);
-    console.log("sign.data:", sign.data);
-    
     const v = (val.data == null) ? 0 : val.data;
 
     // make value negative if sign is false

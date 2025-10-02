@@ -6,31 +6,40 @@ import "./EndexBase.sol";
 abstract contract EndexImpact is EndexBase { 
     using FHEHelpers for *;
 
+    // ===== Price Impact Params (ETH-only tuning) =====
+    uint256 public constant IMPACT_GAMMA_X18       = 3e15;      // 0.003 (dimensionless)
+    uint256 public constant IMPACT_TVL_FACTOR_BPS  = 5000;      // 50% of pool balance
+    uint256 public constant IMPACT_MIN_LIQ_USD     = 100_000e6; // 100k USDC floor (6d)
+    uint256 public constant IMPACT_UTIL_BETA_X18   = 1e18;      // strengthen impact under high |rate|
+    uint256 public constant IMPACT_SCALER          = 1e14;      // units helper
+
     /// @dev Entry impact buckets at open (before OI update).
-    function _encImpactEntryBucketsAtOpenX18(
+    function _impactEntryBucketsAtOpen(
         ebool isLong,
-        euint256 encSize,
+        euint256 size,
         uint256 oraclePrice
-    ) internal override returns (euint256 gainX18, euint256 lossX18) {
-        euint256 K = _impactKEnc(oraclePrice);
+    ) internal override returns (eint256 memory entryImpact) {
+        euint256 K = _impactK(oraclePrice);
 
         (euint256 encAbsSkew, ebool skewGEZero) = _encAbsSkewAndFlag();
 
         (euint256 deltaPos, euint256 deltaNeg) =
-            _encDeltaPartsForImpact(isLong, skewGEZero, encSize, encAbsSkew);
+            _encDeltaPartsForImpact(isLong, skewGEZero, size, encAbsSkew);
 
         // impactX18 = delta * K; positive => trader loss, negative => trader gain
-        lossX18 = FHE.mul(deltaPos, K);
-        gainX18 = FHE.mul(deltaNeg, K);
+        eint256 memory lossX18 = eint256({sign: FHE.asEbool(false), val: FHE.mul(deltaPos, K)});
+        eint256 memory gainX18 = eint256({sign: FHE.asEbool(true), val: FHE.mul(deltaNeg, K)});
+
+        entryImpact = FHEHelpers._encAddSigned(lossX18, gainX18);
     }
 
     /// @dev Exit impact buckets at close (before OI is removed).
     /// For exit, the trade is in the OPPOSITE direction with size = position.size.
-    function _encImpactExitBucketsAtCloseX18(
+    function _impactExitBucketsAtClose(
         Position storage p,
         uint256 oraclePrice
-    ) internal override returns (euint256 gainX18, euint256 lossX18) {
-        euint256 K = _impactKEnc(oraclePrice);
+    ) internal override returns (eint256 memory exitImpact) {
+        euint256 K = _impactK(oraclePrice);
 
         (euint256 encAbsSkew, ebool skewGEZero) = _encAbsSkewAndFlag();
 
@@ -41,12 +50,14 @@ abstract contract EndexImpact is EndexBase {
         (euint256 deltaPos, euint256 deltaNeg) =
             _encDeltaPartsForImpact(exitIsLong, skewGEZero, p.size, encAbsSkew);
 
-        lossX18 = FHE.mul(deltaPos, K);
-        gainX18 = FHE.mul(deltaNeg, K);
+        eint256 memory lossX18 = eint256({sign: FHE.asEbool(false), val: FHE.mul(deltaPos, K)});
+        eint256 memory gainX18 = eint256({sign: FHE.asEbool(true), val: FHE.mul(deltaNeg, K)});
+
+        exitImpact = FHEHelpers._encAddSigned(lossX18, gainX18);
     }
 
     /// @dev Encrypted K: K = (P0 * GAMMA_X18) / (2 * L * IMPACT_SCALER)
-    function _impactKEnc(uint256 oraclePrice) internal returns (euint256 K) {
+    function _impactK(uint256 oraclePrice) internal returns (euint256 K) {
         // numerator is plaintext -> encrypt once
         uint256 numPlain = oraclePrice * IMPACT_GAMMA_X18; // 8d * 1e18 ~ 1e26
         euint256 num = FHE.asEuint256(numPlain);
@@ -71,13 +82,13 @@ abstract contract EndexImpact is EndexBase {
     function _encDeltaPartsForImpact(
         ebool isLong,
         ebool skewGEZero,
-        euint256 encSize,
+        euint256 size,
         euint256 encAbsSkew
     ) internal returns (euint256 deltaPos, euint256 deltaNeg) {
         // Common terms: size^2 and 2*|skew|*size
-        euint256 size2    = FHE.mul(encSize, encSize);
+        euint256 size2    = FHE.mul(size, size);
         euint256 twoAbs   = FHE.mul(encAbsSkew, FHE.asEuint256(2));
-        euint256 twoSsize = FHE.mul(twoAbs, encSize);
+        euint256 twoSsize = FHE.mul(twoAbs, size);
 
         // Magnitude of (size^2 - 2|s|size)
         ebool size2Ge = FHE.gte(size2, twoSsize);

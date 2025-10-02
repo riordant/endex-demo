@@ -1,7 +1,6 @@
 export * from './deployment/endex-deploy'
 export * from './deployment/price-updater'
 export * from './deployment/miner'
-export * from './global/dashboard'
 export * from './keeper/position-keeper'
 export * from './user/endex-trade'
 export * from './user/dashboard'

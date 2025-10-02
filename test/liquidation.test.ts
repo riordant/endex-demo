@@ -142,7 +142,7 @@ describe('Endex — Liquidation', function () {
     // Snapshot funding delta for this position (id = 2)
     const pos2_before = await perps.getPosition(2)
     const cumLong = await unsealEint256(await perps.cumFundingLongX18())
-    const entryFunding2 = await unsealEint256(pos2_before.entryFundingX18)
+    const entryFunding2 = await unsealEint256(pos2_before.entryFunding)
     let dF = cumLong - entryFunding2
     expect(dF > 0n, 'dF should be positive for longs when rate>0').to.eq(true)
   
@@ -236,7 +236,7 @@ describe('Endex — Liquidation', function () {
     // Freeze funding at settlement boundary and compute dF for the short
     await perps.pokeFunding()
     const pos = await perps.getPosition(2)
-    const entryFunding = await unsealEint256(pos.entryFundingX18)
+    const entryFunding = await unsealEint256(pos.entryFunding)
     const cumShortNow  = await unsealEint256(await perps.cumFundingShortX18())
     const dF = cumShortNow - entryFunding
     expect(dF > 0n, 'short dF should be positive under negative rate').to.eq(true)

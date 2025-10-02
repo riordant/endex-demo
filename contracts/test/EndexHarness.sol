@@ -35,7 +35,7 @@ contract EndexHarness is Endex {
         );
         _allowFunding_Global_();
         Position storage position = positions[nextPositionId-1];
-        _allowEint256_Global(position.entryFundingX18);
+        _allowEint256_Global(position.entryFunding);
     }
 
     function _allowFunding_Global_() internal {

@@ -11,9 +11,8 @@ abstract contract EndexSettlement is EndexBase {
         // Accrue funding to now
         _pokeFunding();
 
-        // Build encrypted equity at this price (X18) including exit impact, then request decrypt
-        euint256 encEqX18 = _encEquityOnlyX18(p, settlementPrice);
-        p.pendingEquityX18 = encEqX18;
+        // Build encrypted equity at this price (X18), then request decrypt
+        p.pendingEquityX18 = _encEquityOnlyX18(p, settlementPrice);
         FHE.decrypt(p.pendingEquityX18);
 
         p.status = Status.AwaitingSettlement;
@@ -64,43 +63,60 @@ abstract contract EndexSettlement is EndexBase {
         return true;
     }
 
-    /// @dev Encrypted equity (X18), clamped to zero. Includes **exit impact** at settlement.
+    /// @dev Encrypted equity (X18), clamped to zero.
     /// equityX18 = max(0, collateral*1e18 + gainsX18 - lossesX18)
     function _encEquityOnlyX18(
         Position storage p,
         uint256 price
-    ) internal returns (euint256) {
-        (euint256 pnlGainX18, euint256 pnlLossX18) = _encPnlBucketsX18(p, price);
-        (euint256 fundGainX18,  euint256 fundLossX18)  = _encFundingBucketsX18(p);
+    ) internal returns (euint256 equityNet) {
+        euint256 collX18   = FHE.asEuint256(p.collateral * ONE_X18);
+        eint256 memory collateral = eint256({sign: FHE.asEbool(true), val: collX18});
+
+        eint256 memory pnl = _pnlBuckets(p, price);
+        eint256 memory funding = _fundingBuckets(p);
+        eint256 memory entryImpact = p.entryImpact;
+        eint256 memory exitImpact = _impactExitBucketsAtClose(p, price);
+
+        eint256 memory pnlAndFunding = FHEHelpers._encAddSigned(pnl, funding);
+        eint256 memory totalImpact   = FHEHelpers._encAddSigned(entryImpact, exitImpact);
+        eint256 memory total         = FHEHelpers._encAddSigned(pnlAndFunding, totalImpact);
+        eint256 memory equity        = FHEHelpers._encAddSigned(total, collateral);
+
+        // if insolvent => 0; else => diff
+        equityNet = FHE.select(equity.sign, equity.val, FHE.asEuint256(0));
+
+        //(euint256 pnlGainX18, euint256 pnlLossX18) = _pnlBuckets(p, price);
+        //(euint256 fundGainX18,  euint256 fundLossX18)  = _fundingBuckets(p);
 
         // exit impact at settlement
-        (euint256 exitGainX18, euint256 exitLossX18) = _encImpactExitBucketsAtCloseX18(p, price);
+        //(euint256 exitGainX18, euint256 exitLossX18) = _impactExitBucketsAtClose(p, price);
+        //eint256 memory exitImpact = _impactExitBucketsAtClose(p, price);
 
-        // include entry impact
-        euint256 gainsX18  = FHE.add(pnlGainX18, fundGainX18);
-        gainsX18           = FHE.add(gainsX18,  p.encImpactEntryGainX18);
-        gainsX18           = FHE.add(gainsX18,  exitGainX18);
+        //// include entry impact
+        //euint256 gainsX18  = FHE.add(pnlGainX18, fundGainX18);
+        //gainsX18           = FHE.add(gainsX18,  p.encImpactEntryGainX18);
+        //gainsX18           = FHE.add(gainsX18,  exitGainX18);
 
-        euint256 lossesX18 = FHE.add(pnlLossX18, fundLossX18);
-        lossesX18          = FHE.add(lossesX18, p.encImpactEntryLossX18);
-        lossesX18          = FHE.add(lossesX18, exitLossX18);
+        //euint256 lossesX18 = FHE.add(pnlLossX18, fundLossX18);
+        //lossesX18          = FHE.add(lossesX18, p.encImpactEntryLossX18);
+        //lossesX18          = FHE.add(lossesX18, exitLossX18);
 
-        euint256 collX18   = FHE.asEuint256(p.collateral * ONE_X18);
-        euint256 lhs       = FHE.add(collX18, gainsX18);
+        //euint256 collX18   = FHE.asEuint256(p.collateral * ONE_X18);
+        //euint256 lhs       = FHE.add(collX18, gainsX18);
 
-        // equity = max(0, lhs - losses)
-        ebool insolvent    = FHE.lt(lhs, lossesX18);
-        euint256 diff      = FHE.sub(FHE.select(insolvent, lossesX18, lhs),
-                                     FHE.select(insolvent, lhs,       lossesX18));
-        // if insolvent => 0; else => diff
-        return FHE.select(insolvent, FHEHelpers._zero(), diff);
+        //// equity = max(0, lhs - losses)
+        //ebool insolvent    = FHE.lt(lhs, lossesX18);
+        //euint256 diff      = FHE.sub(FHE.select(insolvent, lossesX18, lhs),
+        //                             FHE.select(insolvent, lhs,       lossesX18));
+        //// if insolvent => 0; else => diff
+        //return FHE.select(insolvent, FHEHelpers._zero(), diff);
     }
 
     /// @dev Price PnL buckets (non-negative), X18-scaled: routes magnitude to gain or loss.
-    function _encPnlBucketsX18(
+    function _pnlBuckets(
         Position storage p,
         uint256 price
-    ) internal override returns (euint256 gainX18, euint256 lossX18) {
+    ) internal override returns (eint256 memory pnl) {
         // ratioX18 = 1e18 * P / E  (plaintext for sign; encrypted magnitude below)
         uint256 ratioX18 = (price * ONE_X18) / p.entryPrice;
         uint256 deltaX18 = ratioX18 >= ONE_X18 ? (ratioX18 - ONE_X18) : (ONE_X18 - ratioX18);
@@ -113,17 +129,18 @@ abstract contract EndexSettlement is EndexBase {
         ebool priceLT = FHE.asEbool(price < p.entryPrice);
         ebool priceGain = FHE.select(p.isLong, priceGE, priceLT);
 
-        gainX18 = FHE.select(priceGain, encMagX18, FHEHelpers._zero());
-        lossX18 = FHE.select(priceGain, FHEHelpers._zero(), encMagX18);
+        //gainX18 = FHE.select(priceGain, encMagX18, FHEHelpers._zero());
+        //lossX18 = FHE.select(priceGain, FHEHelpers._zero(), encMagX18);
+        pnl = eint256({ sign: priceGain, val: encMagX18 });
     }
 
     /// @dev Funding buckets (non-negative), X18-scaled: routes magnitude to gain or loss.
-    function _encFundingBucketsX18(
+    function _fundingBuckets(
         Position storage p
-    ) internal override returns (euint256 gainX18, euint256 lossX18) {
+    ) internal override returns (eint256 memory funding) {
         // dF = currentCum - entryFunding (encrypted signed)
         eint256 memory cur = FHEHelpers._selectEint(p.isLong, cumFundingLongX18, cumFundingShortX18);
-        eint256 memory dF  = FHEHelpers._encSubSigned(cur, p.entryFundingX18);
+        eint256 memory dF  = FHEHelpers._encSubSigned(cur, p.entryFunding);
 
         // magnitude
         euint256 magX18 = FHE.mul(p.size, dF.val);
@@ -131,7 +148,10 @@ abstract contract EndexSettlement is EndexBase {
         // For long: dF >= 0 => loss; For short: same rule holds because we snapshot side-specific index.
         // Put magnitude to loss if dF.sign==true (>=0), else to gain.
         ebool lossFlag = dF.sign;
-        lossX18 = FHE.select(lossFlag, magX18, FHEHelpers._zero());
-        gainX18 = FHE.select(lossFlag, FHEHelpers._zero(), magX18);
+        //lossX18 = FHE.select(lossFlag, magX18, FHEHelpers._zero());
+        //gainX18 = FHE.select(lossFlag, FHEHelpers._zero(), magX18);
+
+        ebool sign = FHE.select(lossFlag, FHE.asEbool(false), FHE.asEbool(true));
+        funding = eint256({sign: sign, val: magX18});
     }
 }

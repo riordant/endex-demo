@@ -71,7 +71,7 @@ Requested → Pending: decrypt Validity.requestValid = `_validateSize` && `_vali
 Pending → Open: once `pendingDone` decrypts `true` (ie. mark price within `entryPriceRange`), 
     _openPositionFinalize:
 
-        - Snapshot entry funding index for side (`entryFundingX18`),
+        - Snapshot entry funding index for side (`entryFunding`),
 
         - Compute entry impact buckets before OI changes (`_encImpactEntryBucketsAtOpenX18`),
 
@@ -110,7 +110,7 @@ with $r=\text{fundingRatePerSecX18}$ (signed X18), $\Delta t$ in seconds.
 On `_openPositionFinalize()` (following valid position check):
 
 $$
-\text{entryFundingX18} \gets
+\text{entryFunding} \gets
 \begin{cases}
 \text{cumFundingLongX18} & \text{if long}\\
 \text{cumFundingShortX18} & \text{if short}
@@ -141,7 +141,7 @@ At settlement (after size decrypt):
 $$
 \text{fundingUSDC} \;=\; S \cdot \frac{\Delta F}{1e18}
 \quad\text{where}\quad
-\Delta F \;=\; \Big(\text{cumFundingSideX18}\;-\;\text{entryFundingX18}\Big)
+\Delta F \;=\; \Big(\text{cumFundingSideX18}\;-\;\text{entryFunding}\Big)
 $$
 
 - $S$ is **decrypted** notional (6d).
