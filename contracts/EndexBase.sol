@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.25;
+pragma solidity 0.8.25;
 
 import {IAggregatorV3} from "./interfaces/IAggregatorV3.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -47,12 +47,13 @@ abstract contract EndexBase {
     }
 
     struct Position {
+        // Trade data
         address  owner;
         uint256  positionId;
-        ebool    isLong;
+        uint256  collateral;      // underlying amount (6 decimals, plaintext)
+        ebool    isLong;          // Trade direction (encrypted)
         euint256 size;            // notional in underlying (6 decimals, encrypted)
         Range    entryPriceRange; // Chainlink price range (encrypted)
-        uint256  collateral;      // underlying amount (6 decimals, plaintext)
         eint256 entryFunding;     // Funding index snapshot (X18, encrypted signed)
         eint256 entryImpact;      // Encrypted price impact (X18, encrypted signed)
 
@@ -61,9 +62,10 @@ abstract contract EndexBase {
         uint256  pendingLiquidationPrice;
         uint256  settlementPrice;
 
-        // Settlement path: encrypted equity (X18) awaiting decrypt in _settle
+        // Encrypted equity (X18) to be used during settlement
         euint256 pendingEquity;
-
+        
+        // State
         Validity validity;
         Status     status;
         CloseCause cause;

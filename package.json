@@ -1,13 +1,14 @@
 {
 	"name": "endex-demo",
 	"version": "0.0.1",
-	"description": "Perpetual DEX w/ FHE for position encryption",
+	"description": "Perpetual DEX w/ FHE for position encryption via CoFHE",
 	"scripts": {
 		"test": "REPORT_GAS=true hardhat test",
-		"clean": "rimraf ./artifacts ./cache ./coverage ./types ./coverage.json ./deployments/localcofhe",
+		"clean": "rimraf ./artifacts ./cache ./coverage ./types ./coverage.json ./deployments/localhost",
 		"compile": "hardhat compile",
+        "postinstall": "ts-node scripts/patch-cofhe-mock.ts",
 		"// ------------------- ": "",
-		" --- local (start automatically deploys mock contracts): ---": "",
+		" --- local (start automatically deploys cofhe mock contracts): ---": "",
 		"//    -------------------": "",
 		"local:start": "hardhat node --port 8545",
 		"local:deploy": "hardhat endex-deploy --network localhost",
@@ -16,26 +17,18 @@
         "local:liquidity": "hardhat liquidity-manager --network localhost",
         "local:dashboard": "hardhat user-dashboard --network localhost",
         "local:keeper": "hardhat position-keeper --network localhost",
-        "local:miner": "hardhat miner --network localhost",
-		"// --------------------": "",
-		"//  --- sepolia ---": "",
-		"//   --------------------": "",
-		"eth-sepolia:deploy-endex": "hardhat deploy-endex --network eth-sepolia",
-		"// -------------------": "",
-		"//  --- arbitrum-sepolia ---": "",
-		"//   -------------------": "",
-		"arb-sepolia:deploy-endex": "hardhat deploy-endex --network arb-sepolia"
+        "local:miner": "hardhat miner --network localhost"
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/fhenixprotocol/cofhe-hardhat-starter.git"
+		"url": "git+https://github.com/EnDexFi/endex-demo.git"
 	},
 	"author": "Fhenix",
 	"license": "MIT",
 	"bugs": {
-		"url": "https://github.com/fhenixprotocol/cofhe-hardhat-starter/issues"
+		"url": "https://github.com/EnDexFi/endex-demo/issues"
 	},
-	"homepage": "https://github.com/fhenixprotocol/cofhe-hardhat-starter#readme",
+	"homepage": "https://github.com/EnDexFi/endex-demo#readme",
 	"devDependencies": {
 		"@fhenixprotocol/cofhe-contracts": "^0.0.13",
 		"@fhenixprotocol/cofhe-mock-contracts": "^0.3.1",
@@ -65,11 +58,5 @@
 		"ts-node": ">=8.0.0",
 		"typechain": "^8.3.0",
 		"typescript": ">=4.5.0"
-	},
-	"devDependencies2": {
-		"@fhenixprotocol/cofhe-contracts": "0.0.13",
-		"@fhenixprotocol/cofhe-mock-contracts": "^0.3.0",
-		"cofhe-hardhat-plugin": "^0.3.0",
-		"cofhejs": "^0.3.0"
 	}
 }

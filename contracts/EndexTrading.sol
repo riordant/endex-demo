@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.25;
+pragma solidity 0.8.25;
 
 import "./EndexBase.sol";
 
@@ -10,6 +10,10 @@ abstract contract EndexTrading is EndexBase {
     uint256 public constant MAX_LEVERAGE_X     =    5; // 5x
     uint256 public constant MIN_SIZE           = 10e6; // 10 underlying (6d)
     uint256 public constant PRICE_RANGE_BUFFER =  1e8; // 1 underlying (8d)
+    uint256 public constant OI_CAP_BPS_TOTAL   = 7000; // 70% TVL
+    uint256 public constant OI_CAP_BPS_LONG    = 5000; // 50% TVL
+    uint256 public constant OI_CAP_BPS_SHORT   = 5000; // 50% TVL
+
 
     uint256 public nextPositionId = 1;
 
@@ -47,13 +51,10 @@ abstract contract EndexTrading is EndexBase {
             low: FHE.asEuint256(entryPriceRange_.low),
             high: FHE.asEuint256(entryPriceRange_.high)
         });
-
-        // validations: size, and entry price range
-        ebool sizeValid    = _validateSize(size, collateral);
-        ebool rangeValid   = _validateRange(range);
-        ebool requestValid = FHE.and(sizeValid, rangeValid);
+        
+        // create validation object
         Validity memory validity = Validity({
-            requestValid: requestValid,
+            requestValid: _validateRequest(isLong, size, range, collateral),
             pendingDone: FALSE,
             toBeLiquidated: FALSE,
             removed: false
@@ -68,10 +69,10 @@ abstract contract EndexTrading is EndexBase {
         positions[id] = Position({
             owner: msg.sender,
             positionId: id,
+            collateral: collateral,
             isLong: isLong,
             size: size,
             entryPriceRange: range,
-            collateral: collateral,
             entryFunding: FHEHelpers.zeroEint256(),
             entryImpact: FHEHelpers.zeroEint256(),
             entryPrice: 0,
@@ -129,22 +130,57 @@ abstract contract EndexTrading is EndexBase {
         _allowPositionFinalize(p);
     }
 
+    /// @dev Validations: size, caps, entry price (range)
+    function _validateRequest(ebool isLong, euint256 size, Range memory range, uint256 collateral) internal returns(ebool) {
+        ebool sizeValid    = _validateSize(size, collateral);
+        ebool oiCapsValid  = _validateOICaps(isLong, size);
+        ebool rangeValid   = _validateRange(range);
+
+        return FHE.and(FHE.and(
+            sizeValid, 
+            oiCapsValid), 
+            rangeValid
+        );
+    }
+
     /// @dev Validate MIN_SIZE <= size <= collateral * MAX_LEVERAGE_X.
-    function _validateSize(euint256 _size, uint256 collateral) internal returns (ebool) {
+    function _validateSize(euint256 size, uint256 collateral) internal returns (ebool) {
         // 
         euint256 min = FHE.asEuint256(MIN_SIZE);
         euint256 max = FHE.asEuint256(collateral * MAX_LEVERAGE_X);
 
-        ebool sizeGTE = FHE.gte(_size, min);
-        ebool sizeLTE = FHE.lte(_size, max);
+        ebool sizeGTE = FHE.gte(size, min);
+        ebool sizeLTE = FHE.lte(size, max);
 
         return FHE.and(sizeGTE, sizeLTE);
     }
 
+    /// @dev Encrypted OI cap check (true = within caps).
+    function _validateOICaps(ebool isLong, euint256 size) internal returns (ebool) {
+        // New OIs (encrypted)
+        euint256 newLong  = FHE.add(encLongOI,  FHE.select(isLong, size, ZERO));
+        euint256 newShort = FHE.add(encShortOI, FHE.select(isLong, ZERO, size));
+        euint256 newTotal = FHE.add(newLong, newShort);
+
+        // Caps from plaintext TVL
+        euint256 capTotal = FHE.asEuint256((totalLiquidity * OI_CAP_BPS_TOTAL) / BPS_DIVISOR);
+        euint256 capLong  = FHE.asEuint256((totalLiquidity * OI_CAP_BPS_LONG)  / BPS_DIVISOR);
+        euint256 capShort = FHE.asEuint256((totalLiquidity * OI_CAP_BPS_SHORT) / BPS_DIVISOR);
+
+        ebool longOk  = FHE.lte(newLong,  capLong);
+        ebool shortOk = FHE.lte(newShort, capShort);
+
+        ebool totalOk = FHE.lte(newTotal, capTotal);
+        ebool sideOk  = FHE.select(isLong, longOk, shortOk);
+
+        return FHE.and(totalOk, sideOk);
+    }
+
     /// @dev Validate (low + BUFFER) < high
-    function _validateRange(Range memory _range) internal returns (ebool) {
-        euint256 buffer = FHE.add(_range.low, FHE.asEuint256(PRICE_RANGE_BUFFER));
-        return FHE.lt(buffer, _range.high);
+    //  entry price is actually *checked* once the position is Open; we just validate correctness here.
+    function _validateRange(Range memory range) internal returns (ebool) {
+        euint256 buffer = FHE.add(range.low, FHE.asEuint256(PRICE_RANGE_BUFFER));
+        return FHE.lt(buffer, range.high);
     }
 
     function _allowPositionRequest(Position storage p) internal {
@@ -201,4 +237,6 @@ abstract contract EndexTrading is EndexBase {
     function getPosition(uint256 positionId) external view returns (Position memory) {
         return positions[positionId];
     }
+
+
 }

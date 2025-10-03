@@ -13,7 +13,7 @@ The contract is very simple voting contract
 // SPDX-License-Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.1.0) (token/ERC20/ERC20.sol)
 
-pragma solidity ^0.8.25;
+pragma solidity 0.8.25;
 
 contract VotingExample {
     struct Option {
@@ -147,7 +147,7 @@ We will pay special attention to the following updates that need to be made:
 The first thing that we need to do is import `FHE.sol` from the `cofhe-contracts` repo. This package allows smart contracts to start using FHE operations and encrypted variables.
 
 ```solidity
-pragma solidity ^0.8.25;
+pragma solidity 0.8.25;
 
 // diff-add
 import {FHE, euint64, InEuint64} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
@@ -568,7 +568,7 @@ The resulting contract provides the same functionality as the original, but with
 // SPDX-License-Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.1.0) (token/ERC20/ERC20.sol)
 
-pragma solidity ^0.8.25;
+pragma solidity 0.8.25;
 
 import {FHE, euint64, InEuint8} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
