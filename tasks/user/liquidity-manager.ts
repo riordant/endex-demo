@@ -129,7 +129,7 @@ task("liquidity-manager", "Add/remove liquidity (deposit/withdraw) on Endex")
 
     } else {
       // ---- Withdraw flow ----
-      const balanceShares: bigint = await endex.lpShares(user);
+      const balanceShares: bigint = await endex.balanceOf(user);
       console.log(`Your LP shares: ${formatAmountWithDecimals(balanceShares, shareDecimals)} (raw=${balanceShares})`);
 
       if (balanceShares === 0n) {

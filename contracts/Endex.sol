@@ -24,5 +24,6 @@ contract Endex is
 {
     constructor(IERC20 _underlying, IAggregatorV3 _feed)
         EndexBase(_underlying, _feed)
+        ERC20("Endex LP Share", "ELS")
     {}
 }

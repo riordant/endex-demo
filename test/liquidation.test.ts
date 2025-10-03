@@ -12,7 +12,7 @@ import {
     openPosition, 
     parseStatus, 
     price, 
-    toUSDC, 
+    toUnderlying, 
     decryptEint256
 } from './utils'
 
@@ -29,22 +29,20 @@ describe('Endex — Liquidation', function () {
   it('performs encrypted liquidation via request → finalize → settle', async function () {
     const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
 
-    await usdc.mint(lp.address, toUSDC(1_000_000n))
+    await usdc.mint(lp.address, toUnderlying(1_000_000n))
     await usdc.connect(lp).approve(endexAddr, hre.ethers.MaxUint256)
-    await endex.connect(lp).lpDeposit(toUSDC(1_000_000n))
+    await endex.connect(lp).lpDeposit(toUnderlying(1_000_000n))
 
-    await usdc.mint(user.address, toUSDC(30_000n))
+    await usdc.mint(user.address, toUnderlying(30_000n))
     await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
 
     // 4x long likely to liquidate on large drop
-    const collateral = toUSDC(5_000n)
-    const direction  = true
-    const size  = toUSDC(20_000n)
-    const encDirection = await encryptBool(direction);
-    const encSize = await encryptUint256(size)
+    const collateral = toUnderlying(5_000n)
+    const direction = await encryptBool(true);
+    const size = await encryptUint256(toUnderlying(20_000n))
 
-    await openPosition(endex, keeper, user, encDirection, encSize, collateral)
+    await openPosition({ endex, keeper, user, direction, size, collateral })
 
     // Big drop to force liquidation
     await feed.updateAnswer(price(1500n))
@@ -73,21 +71,19 @@ describe('Endex — Liquidation', function () {
   it('handles deep negative price PnL without underflow', async function () {
     const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
 
-    await usdc.mint(lp.address, toUSDC(1_000_000n))
+    await usdc.mint(lp.address, toUnderlying(1_000_000n))
     await usdc.connect(lp).approve(endexAddr, hre.ethers.MaxUint256)
-    await endex.connect(lp).lpDeposit(toUSDC(1_000_000n))
+    await endex.connect(lp).lpDeposit(toUnderlying(1_000_000n))
 
-    await usdc.mint(user.address, toUSDC(30_000n))
+    await usdc.mint(user.address, toUnderlying(30_000n))
     await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
 
-    const collateral = toUSDC(5_000n)
-    const direction  = true
-    const size  = toUSDC(20_000n)
-    const encDirection = await encryptBool(direction);
-    const encSize = await encryptUint256(size);
+    const collateral = toUnderlying(5_000n)
+    const direction = await encryptBool(true);
+    const size = await encryptUint256(toUnderlying(20_000n));
 
-    await openPosition(endex, keeper, user, encDirection, encSize, collateral)
+    await openPosition({ endex, keeper, user, direction, size, collateral })
 
     // ~50% drop (2000 -> 1000) would make (ratio - 1) negative if naive; our buckets avoid underflow
     await feed.updateAnswer(price(1000n))
@@ -116,32 +112,32 @@ describe('Endex — Liquidation', function () {
     const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
   
     // Pool & user
-    await usdc.mint(lp.address, toUSDC(2_000_000n))
+    await usdc.mint(lp.address, toUnderlying(2_000_000n))
     await usdc.connect(lp).approve(endexAddr, hre.ethers.MaxUint256)
-    await endex.connect(lp).lpDeposit(toUSDC(2_000_000n))
+    await endex.connect(lp).lpDeposit(toUnderlying(2_000_000n))
   
-    await usdc.mint(user.address, toUSDC(200_000n))
+    await usdc.mint(user.address, toUnderlying(200_000n))
     await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
   
     // 1) Ensure POSITIVE rate: open a large LONG to bias skew => longs pay
     {
-      const edL = await encryptBool(true);
-      const esL = await encryptUint256(toUSDC(120_000n));
+      const direction = await encryptBool(true);
+      const size = await encryptUint256(toUnderlying(120_000n));
       
-      await openPosition(endex, keeper, user, edL, esL, toUSDC(24_000n))
+      await openPosition({ endex, keeper, user, direction, size, collateral: toUnderlying(24_000n) })
   
       const r = await decryptEint256(await endex.fundingRatePerSecond())
       expect(r > 0n, 'expected positive funding rate (longs pay)').to.eq(true)
     }
   
     // 2) Open a 5x LONG we will liquidate with small *positive* equity at liq price
-    const collateralL = toUSDC(5_000n)
+    const collateralL = toUnderlying(5_000n)
     const directionL  = true
-    const sizeL  = toUSDC(25_000n) // 5x
+    const sizeL  = toUnderlying(25_000n) // 5x
     const encDirectionL = await encryptBool(directionL);
     const encSizeL = await encryptUint256(sizeL);
-    await openPosition(endex, keeper, user, encDirectionL, encSizeL, collateralL)
+    await openPosition({ endex, keeper, user, direction: encDirectionL, size: encSizeL, collateral: collateralL })
   
     // Accrue funding meaningfully
     await time.increase(3 * 24 * 3600) // 3 days
@@ -204,30 +200,30 @@ describe('Endex — Liquidation', function () {
     const { endex, endexAddr, usdc, feed, userA: user, lp, keeper } = await loadFixture(deployFixture)
   
     // Pool & user
-    await usdc.mint(lp.address, toUSDC(2_000_000n))
+    await usdc.mint(lp.address, toUnderlying(2_000_000n))
     await usdc.connect(lp).approve(endexAddr, hre.ethers.MaxUint256)
-    await endex.connect(lp).lpDeposit(toUSDC(2_000_000n))
+    await endex.connect(lp).lpDeposit(toUnderlying(2_000_000n))
   
-    await usdc.mint(user.address, toUSDC(200_000n))
+    await usdc.mint(user.address, toUnderlying(200_000n))
     await usdc.connect(user).approve(endexAddr, hre.ethers.MaxUint256)
     await hre.cofhe.expectResultSuccess(hre.cofhe.initializeWithHardhatSigner(user))
   
     // Ensure NEGATIVE rate: open a large SHORT only to bias skew (shorts pay)
     {
-      const eD = await encryptBool(false);
-      const eS = await encryptUint256(toUSDC(150_000n))
-      await openPosition(endex, keeper, user, eD, eS, toUSDC(30_000n))
+      const direction = await encryptBool(false);
+      const size = await encryptUint256(toUnderlying(150_000n))
+      await openPosition({ endex, keeper, user, direction, size, collateral: toUnderlying(30_000n) })
       const rate = await decryptEint256(await endex.fundingRatePerSecond())
       expect(rate < 0n, 'expected negative funding rate (shorts pay)').to.eq(true)
     }
   
     // Open the HIGH-LEV SHORT we will liquidate
-    const collateralS = toUSDC(6_000n)
+    const collateralS = toUnderlying(6_000n)
     const directionS  = false
-    const sizeS  = toUSDC(30_000n) // 5x
+    const sizeS  = toUnderlying(30_000n) // 5x
     const encDirectionS = await encryptBool(directionS);
     const encSizeS = await encryptUint256(sizeS);
-    await openPosition(endex, keeper, user, encDirectionS, encSizeS, collateralS)
+    await openPosition({ endex, keeper, user, direction: encDirectionS, size: encSizeS, collateral: collateralS })
   
     // Accrue funding for a bit
     await time.increase(6 * 3600) // 6h

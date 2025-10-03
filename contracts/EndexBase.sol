@@ -2,8 +2,10 @@
 pragma solidity 0.8.25;
 
 import {IAggregatorV3} from "./interfaces/IAggregatorV3.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "./libs/FHEHelpers.sol";
 import "hardhat/console.sol";

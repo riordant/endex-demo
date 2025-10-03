@@ -2,6 +2,12 @@
 import hre from 'hardhat'
 import { cofhejs, Encryptable, FheTypes } from 'cofhejs/node'
 
+export const ONE_X18       = 10n ** 18n
+export const EPS           = 50000n; // a few ~cents on typical sizes; tune if needed
+export const CLOSE_FEE_BPS = 10n     // 0.1%
+export const entryPrice    = 2000n;
+export const PX0           = price(entryPrice);
+
 export async function _deployFixture() {
     const [deployer, userA, userB, lp, keeper] = await hre.ethers.getSigners()
 
@@ -22,14 +28,6 @@ export async function _deployFixture() {
 
     return { endex, endexAddr, usdc, feed, deployer, userA, userB, lp, keeper }
 }
-
-export function toUSDC(n: bigint) { return n * 10n ** 6n }    // 6 decimals
-export function price(n: bigint)  { return n * 10n ** 8n }    // 8 decimals
-export const ONE_X18 = 10n ** 18n
-export const EPS    = 50000n; // a few ~cents on typical sizes; tune if needed
-export const CLOSE_FEE_BPS = 10n // 0.1%
-// Keep oracle price constant across most tests
-export const PX0 = price(2000n);
 
 // Baseline payout net (no funding, no price impact) used for direction checks.
 // PnL = size * (P-E)/E
@@ -53,33 +51,15 @@ export function baselineNetPayoutBasic(collateral: bigint): bigint {
   return collateral - fee
 }
 
+export function closeFeeOn(gross: bigint) {
+  // Your CLOSE_FEE_BPS is 10; divisor 10_000
+  return (gross * 10n) / 10_000n;
+}
+
 // CoFHE decrypts async
-//export async function coprocessor(ms = 10_000) {
 export async function coprocessor(ms = 1_000) {
   console.log("waiting for coprocessor..")
   return new Promise((r) => setTimeout(r, ms))
-}
-
-export async function encryptUint256(val: bigint) {
-  const [enc] = await hre.cofhe.expectResultSuccess(
-    cofhejs.encrypt([Encryptable.uint256(val)])
-  );
-  return enc;
-}
-
-export async function decryptEuint256(e : any) {
-    const val = await cofhejs.unseal(e, FheTypes.Uint256);
-    console.log(val.data);
-    const v = (val.data == null) ? 0 : val.data;
-    return BigInt(v);
-}
-
-
-export async function encryptBool(val: boolean) {
-  const [enc] = await hre.cofhe.expectResultSuccess(
-    cofhejs.encrypt([Encryptable.bool(val)])
-  );
-  return enc;
 }
 
 export async function decryptEint256(e : any) {
@@ -92,9 +72,68 @@ export async function decryptEint256(e : any) {
     return BigInt(!sign.data ? -1 : 1) * BigInt(v);
 }
 
-export function closeFeeOn(gross: bigint) {
-  // Your CLOSE_FEE_BPS is 10; divisor 10_000
-  return (gross * 10n) / 10_000n;
+export async function decryptEuint256(e : any) {
+    const val = await cofhejs.unseal(e, FheTypes.Uint256);
+    console.log(val.data);
+    const v = (val.data == null) ? 0 : val.data;
+    return BigInt(v);
+}
+
+/** Encrypt an *invalid* range such that (low + BUFFER) >= high so _validateRange() fails */
+export async function encInvalidRange(bufferE8: bigint) {
+  // Pick low = 2000e8; high = low + buffer - 1 ⇒ invalid
+  const lowPlain  = PX0
+  const highPlain = PX0 + bufferE8 - 1n
+  const low  = await encryptUint256(lowPlain)
+  const high = await encryptUint256(highPlain)
+  return [low, high] as const
+}
+
+/** Encrypt a valid ±$1 price band around ${priceIn} (8d), wide enough to satisfy BUFFER */
+export async function encValidRange(priceIn : bigint) {
+  const low  = await encryptUint256(price(priceIn - 1n))
+  const high = await encryptUint256(price(priceIn + 1n))
+  return [low, high]
+}
+
+export async function encryptUint256(val: bigint) {
+  const [enc] = await hre.cofhe.expectResultSuccess(
+    cofhejs.encrypt([Encryptable.uint256(val)])
+  );
+  return enc;
+}
+
+export async function encryptBool(val: boolean) {
+  const [enc] = await hre.cofhe.expectResultSuccess(
+    cofhejs.encrypt([Encryptable.bool(val)])
+  );
+  return enc;
+}
+
+// Request an open, process until opened, expect valid opening
+export async function openPosition({
+    endex, keeper, user, direction, size, collateral
+} : any) {
+      let range = await encValidRange(entryPrice);
+      console.log("open position request..");
+      await endex.connect(user).openPositionRequest(direction, size, range, collateral);
+      await coprocessor();
+
+      const id = Number(await endex.nextPositionId())-1;
+
+      console.log("Process state from Requested -> Pending..");
+      await endex.connect(keeper).process([id]);
+      await coprocessor();
+
+      console.log("Process state from Pending -> Open..");
+      await endex.connect(keeper).process([id]);
+      await coprocessor();
+
+      const status = parseStatus((await endex.getPosition(id)).status);
+      console.log("Status: ", status);
+      if(status != "Open") {
+          throw new Error("Status not Open");
+      }
 }
 
 export function parseStatus(status : BigInt) {
@@ -131,30 +170,24 @@ export function parseCloseCause(status : BigInt) {
     }
 }
 
+export function price(n: bigint) { 
+    return n * 10n ** 8n // 8 decimals
+}
 
-export async function openPosition(endex: any, keeper: any, user: any, direction: any, size: any, collateral: any) {
-      
-      let range = [
-          await encryptUint256(price(1999n)),
-          await encryptUint256(price(2001n))
-      ];
-      console.log("open position request..");
-      await endex.connect(user).openPositionRequest(direction, size, range, collateral);
-      await coprocessor();
+// Request an open, then run one keeper process pass (Requested → refund or Pending).
+export async function requestPosition({
+  endex, keeper, user, direction, size, collateral, range
+}: any) {
+  const [low, high] = range
+  await endex.connect(user).openPositionRequest(direction, size, [low, high], collateral)
+  await coprocessor()                                 // allow decrypt of requestValid
+  const id = Number(await endex.nextPositionId()) - 1 // last requested id
+  await endex.connect(keeper).process([id])           // processes Requested state
+  await coprocessor()
+  const p = await endex.getPosition(id)
+  return { id, p }
+}
 
-      const id = Number(await endex.nextPositionId())-1;
-
-      console.log("Process state from Requested -> Pending..");
-      await endex.connect(keeper).process([id]);
-      await coprocessor();
-
-      console.log("Process state from Pending -> Open..");
-      await endex.connect(keeper).process([id]);
-      await coprocessor();
-
-      const status = parseStatus((await endex.getPosition(id)).status);
-      console.log("Status: ", status);
-      if(status != "Open") {
-          throw new Error("Status not Open");
-      }
+export function toUnderlying(n: bigint) { 
+    return n * 10n ** 6n // 6 decimals
 }
